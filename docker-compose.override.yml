@@ -1,0 +1,36 @@
+# Docker Compose override for development
+# This file is automatically loaded by docker-compose
+
+services:
+  backend:
+    # Override for development
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+
+  frontend:
+    # Override for development
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+  postgres:
+    # Development database settings
+    environment:
+      - POSTGRES_DB=docwheech_dev
+    ports:
+      - "5432:5432"
+
+  redis:
+    # Development Redis settings
+    ports:
+      - "6379:6379"
