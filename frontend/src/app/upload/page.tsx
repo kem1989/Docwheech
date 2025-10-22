@@ -167,6 +167,19 @@ export default function UploadPage() {
     try {
       await apiClient.deleteFile(documentId);
       removeDocument(documentId);
+      // Refresh submission header counts and file list to stay in sync with backend
+      if (currentSubmission) {
+        try {
+          const [refreshedSubmission, filesResponse] = await Promise.all([
+            apiClient.getSubmission(currentSubmission.id),
+            apiClient.getSubmissionFiles(currentSubmission.id)
+          ]);
+          setCurrentSubmission(refreshedSubmission);
+          setDocuments(filesResponse.documents);
+        } catch (_) {
+          // Ignore refresh errors; UI already reflects local removal
+        }
+      }
       setSuccess('File deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete file');
