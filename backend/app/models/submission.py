@@ -46,6 +46,19 @@ class Submission(Base):
     user = relationship("User", back_populates="submissions")
     documents = relationship("Document", back_populates="submission", cascade="all, delete-orphan")
     
+    # Enhanced ACORD 125 relationships
+    agency = relationship("Agency", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    transaction_status = relationship("TransactionStatus", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    policy = relationship("Policy", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    lines_of_business = relationship("LineOfBusiness", back_populates="submission", cascade="all, delete-orphan")
+    first_named_insured = relationship("FirstNamedInsured", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    contacts = relationship("Contact", back_populates="submission", cascade="all, delete-orphan")
+    nature_of_business = relationship("NatureOfBusiness", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    premises = relationship("Premise", back_populates="submission", cascade="all, delete-orphan")
+    prior_carriers = relationship("PriorCarrier", back_populates="submission", cascade="all, delete-orphan")
+    loss_history = relationship("LossHistory", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    signatures = relationship("Signature", back_populates="submission", cascade="all, delete-orphan")
+    
     def __repr__(self):
         return f"<Submission(id={self.id}, user_id={self.user_id}, status={self.status})>"
     

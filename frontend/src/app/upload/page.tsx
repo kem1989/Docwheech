@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth-store';
 import { useSubmissionStore } from '@/store/submission-store';
-import { apiClient } from '@/lib/api';
+import { apiClient, setAuthToken } from '@/lib/api';
 import FileUpload from '@/components/forms/file-upload';
 import SessionRecovery from '@/components/session-recovery';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { Upload, FileText, CheckCircle, AlertCircle, Trash2, History } from 'luc
 
 export default function UploadPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading, user } = useAuthStore();
+  const { isAuthenticated, isLoading, user, token } = useAuthStore();
   const {
     currentSubmission,
     documents,
@@ -36,6 +36,13 @@ export default function UploadPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [showSessionRecovery, setShowSessionRecovery] = useState(false);
   const [hasIncompleteSubmissions, setHasIncompleteSubmissions] = useState(false);
+
+  // Set auth token when component mounts
+  useEffect(() => {
+    if (token) {
+      setAuthToken(token);
+    }
+  }, [token]);
 
   // Redirect if not authenticated
   useEffect(() => {

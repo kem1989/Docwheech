@@ -9,7 +9,24 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base
-from app.models import User, Submission, Document
+from app.models import (
+    User, 
+    Submission, 
+    Document,
+    # Enhanced ACORD 125 models
+    Agency,
+    TransactionStatus,
+    Policy,
+    LineOfBusiness,
+    FirstNamedInsured,
+    Contact,
+    NatureOfBusiness,
+    Premise,
+    PriorCarrier,
+    LossHistory,
+    Loss,
+    Signature,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

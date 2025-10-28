@@ -265,6 +265,16 @@ async def confirm_file_upload(
         submission.total_files += 1
         submission.updated_at = datetime.utcnow()
         
+        # Reset extraction status if submission previously failed
+        # This allows users to retry extraction with new/updated files
+        if submission.extraction_status == 'failed':
+            logger.info(f"Resetting extraction status for submission {submission_id} from 'failed' to 'pending'")
+            submission.extraction_status = 'pending'
+            submission.extraction_error = None
+            submission.extraction_progress = 0
+            submission.processed_files = 0
+            submission.status = 'draft'
+        
         db.commit()
         db.refresh(document)
         
@@ -284,6 +294,55 @@ async def confirm_file_upload(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to confirm file upload"
+        )
+
+
+@router.post("/submissions/{submission_id}/reset-extraction")
+async def reset_extraction_status(
+    submission_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Reset extraction status for a failed submission to allow retry"""
+    try:
+        # Verify submission exists and belongs to user
+        submission = db.query(Submission).filter(
+            Submission.id == submission_id,
+            Submission.user_id == current_user.id
+        ).first()
+        
+        if not submission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Submission not found"
+            )
+        
+        # Reset extraction status
+        logger.info(f"Manually resetting extraction status for submission {submission_id}")
+        submission.extraction_status = 'pending'
+        submission.extraction_error = None
+        submission.extraction_progress = 0
+        submission.processed_files = 0
+        submission.status = 'draft'
+        submission.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(submission)
+        
+        return {
+            "message": "Extraction status reset successfully",
+            "submission_id": str(submission.id),
+            "extraction_status": submission.extraction_status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reset extraction status: {str(e)}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset extraction status"
         )
 
 
@@ -406,4 +465,74 @@ async def validate_file(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File validation failed: {str(e)}"
+        )
+
+
+@router.delete("/submissions/{submission_id}")
+async def delete_submission(
+    submission_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a submission and all its related data
+    
+    This will delete:
+    - All documents from S3 storage
+    - All document records from database
+    - All ACORD data records
+    - The submission itself
+    """
+    try:
+        # Get submission and verify ownership
+        submission = db.query(Submission).filter(
+            Submission.id == submission_id,
+            Submission.user_id == current_user.id
+        ).first()
+        
+        if not submission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Submission not found"
+            )
+        
+        # Get all documents for this submission
+        documents = db.query(Document).filter(
+            Document.submission_id == submission_id
+        ).all()
+        
+        # Delete all files from S3
+        deleted_files = 0
+        for document in documents:
+            if document.s3_key:
+                try:
+                    s3_service.delete_file(document.s3_key)
+                    deleted_files += 1
+                    logger.info(f"Deleted S3 file: {document.s3_key}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete S3 file {document.s3_key}: {str(e)}")
+        
+        # Delete submission (this will cascade delete all related records)
+        # Including: documents, agency, policy, lines_of_business, contacts, 
+        # nature_of_business, premises, prior_carriers, loss_history, signatures
+        db.delete(submission)
+        db.commit()
+        
+        logger.info(f"Deleted submission {submission_id} with {len(documents)} documents ({deleted_files} S3 files)")
+        
+        return {
+            "message": "Submission deleted successfully",
+            "submission_id": submission_id,
+            "documents_deleted": len(documents),
+            "s3_files_deleted": deleted_files
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete submission: {str(e)}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete submission: {str(e)}"
         )
