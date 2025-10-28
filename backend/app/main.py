@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info("Starting Docwheech API...")
+    print("🚀 Backend update test - Container restarted successfully!")
     create_tables()
     logger.info("Database tables created/verified")
     
@@ -72,7 +73,8 @@ async def root():
         "message": "Docwheech API",
         "version": "1.0.0",
         "status": "running",
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
+        "updated": "Container restart test successful! 🎉"
     }
 
 
