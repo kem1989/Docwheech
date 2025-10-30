@@ -119,7 +119,9 @@ Please extract the following ACORD 125 information and return it as a JSON objec
         "minimum_premium": {{"value": "minimum premium or null", "confidence": 0.0-1.0}}
     }},
     "lines_of_business": {{
-        "value": ["list of coverage types like COMMERCIAL_GENERAL_LIABILITY, COMMERCIAL_PROPERTY, etc. or null"],
+        "value": [
+            "ONLY select from these ENUM values based on the business operations described in the document: COMMERCIAL_GENERAL_LIABILITY, COMMERCIAL_PROPERTY, BUSINESS_AUTO, UMBRELLA, BUSINESS_OWNERS, GARAGE_AND_DEALERS, CRIME, BOILER_AND_MACHINERY, COMMERCIAL_INLAND_MARINE, CYBER_AND_PRIVACY, FIDUCIARY_LIABILITY, LIQUOR_LIABILITY, MOTOR_CARRIER, TRUCKERS, YACHT. If none apply, return an empty array []"
+        ],
         "confidence": 0.0-1.0
     }},
     "first_named_insured": {{
@@ -163,7 +165,11 @@ CRITICAL INSTRUCTIONS:
 4. For numbers, extract only numeric values (no currency symbols)
 5. For business structure, use ENUM values: INDIVIDUAL, LLC, CORPORATION, PARTNERSHIP, JOINT_VENTURE, NOT_FOR_PROFIT_ORG, SUBCHAPTER_S_CORPORATION, TRUST
 6. For transaction type, use: QUOTE, RENEWAL, ISSUE_POLICY, BOUND, CANCEL, CHANGE
-7. For lines of business, use ENUM values like: COMMERCIAL_GENERAL_LIABILITY, COMMERCIAL_PROPERTY, BUSINESS_AUTO, WORKERS_COMPENSATION, UMBRELLA
+7. Lines of Business rules:
+   - STRICTLY select ONLY from: COMMERCIAL_GENERAL_LIABILITY, COMMERCIAL_PROPERTY, BUSINESS_AUTO, UMBRELLA, BUSINESS_OWNERS, GARAGE_AND_DEALERS, CRIME, BOILER_AND_MACHINERY, COMMERCIAL_INLAND_MARINE, CYBER_AND_PRIVACY, FIDUCIARY_LIABILITY, LIQUOR_LIABILITY, MOTOR_CARRIER, TRUCKERS, YACHT
+   - DO NOT include Workers Compensation under any circumstance
+   - Derive primarily from explicit request phrases (e.g., "Need quotes on", "Coverage requested", "Apply for", "Requested coverages")
+   - Use prior carriers ONLY as supporting context; do not add coverages unless they are also requested in the document
 8. For business_type, extract as ARRAY of strings (e.g., ["manufacturing", "wholesale", "retail"]). Derive from industry descriptions or explicit business classifications in the text.
 9. Assign confidence scores based on how clearly information is stated
 10. If information is ambiguous or unclear, assign lower confidence (<0.7)

@@ -55,7 +55,6 @@ class LineOfBusinessSchema(BaseModel):
     """Line of business schema"""
     line: Optional[LineOfBusinessEnum] = Field(None, description="Line of business type")
     selected: Optional[bool] = Field(False, description="Whether this line is selected")
-    premium: Optional[Decimal] = Field(None, description="Premium amount for this line")
 
 
 class FirstNamedInsuredSchema(BaseModel):

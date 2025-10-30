@@ -39,7 +39,6 @@ class LineOfBusinessEnum(str, enum.Enum):
     COMMERCIAL_GENERAL_LIABILITY = "COMMERCIAL_GENERAL_LIABILITY"
     COMMERCIAL_PROPERTY = "COMMERCIAL_PROPERTY"
     BUSINESS_AUTO = "BUSINESS_AUTO"
-    WORKERS_COMPENSATION = "WORKERS_COMPENSATION"
     UMBRELLA = "UMBRELLA"
     BUSINESS_OWNERS = "BUSINESS_OWNERS"
     GARAGE_AND_DEALERS = "GARAGE_AND_DEALERS"
@@ -197,7 +196,6 @@ class LineOfBusiness(Base):
     # Line details
     line = Column(Enum(LineOfBusinessEnum), nullable=False)
     selected = Column(Boolean, default=False, nullable=False)
-    premium = Column(DECIMAL(10, 2), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -212,7 +210,6 @@ class LineOfBusiness(Base):
             "submission_id": str(self.submission_id),
             "line": self.line.value if self.line else None,
             "selected": self.selected,
-            "premium": float(self.premium) if self.premium else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

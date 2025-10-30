@@ -51,17 +51,19 @@ def transform_lines_of_business(raw_lines: Any, prior_carriers: Optional[List[Di
     """
     Transform lines of business from simple list to schema-compliant objects
     
+    Line of Business = What insurance coverage types the client is requesting
+    (e.g., General Liability, Commercial Property, Business Auto, etc.)
+    
     Transforms:
         ["COMMERCIAL_GENERAL_LIABILITY", "BUSINESS_AUTO"]
     To:
         [
-            {"line": "COMMERCIAL_GENERAL_LIABILITY", "selected": true, "premium": 18500},
-            {"line": "BUSINESS_AUTO", "selected": true, "premium": 15200}
+            {"line": "COMMERCIAL_GENERAL_LIABILITY", "selected": true},
+            {"line": "BUSINESS_AUTO", "selected": true}
         ]
     
     Args:
         raw_lines: List of line of business strings or existing objects
-        prior_carriers: Optional list of prior carriers to extract premiums
         
     Returns:
         List of properly structured line of business objects
@@ -74,31 +76,6 @@ def transform_lines_of_business(raw_lines: Any, prior_carriers: Optional[List[Di
         if isinstance(raw_lines[0], dict) and 'line' in raw_lines[0]:
             return raw_lines
     
-    # Create premium mapping from prior carriers
-    premium_map = {}
-    if prior_carriers:
-        # Map line types to premiums based on policy numbers
-        line_indicators = {
-            'COMMERCIAL_GENERAL_LIABILITY': ['GL', 'GENERAL'],
-            'COMMERCIAL_PROPERTY': ['CP', 'PROPERTY'],
-            'BUSINESS_AUTO': ['CA', 'AUTO', 'BA'],
-            'WORKERS_COMPENSATION': ['WC', 'WORKERS'],
-            'UMBRELLA': ['UMB', 'UMBRELLA'],
-            'PROFESSIONAL_LIABILITY': ['PL', 'PROF', 'E&O'],
-            'CYBER_LIABILITY': ['CYBER'],
-            'EMPLOYMENT_PRACTICES': ['EPL', 'EPLI']
-        }
-        
-        for carrier in prior_carriers:
-            policy_number = str(carrier.get('policy_number', '')).upper()
-            premium = carrier.get('premium')
-            
-            if premium:
-                for line_type, indicators in line_indicators.items():
-                    if any(ind in policy_number for ind in indicators):
-                        premium_map[line_type] = premium
-                        break
-    
     # Convert list of strings to proper schema objects
     result = []
     if isinstance(raw_lines, list):
@@ -106,8 +83,7 @@ def transform_lines_of_business(raw_lines: Any, prior_carriers: Optional[List[Di
             line_str = str(line).upper().strip()
             result.append({
                 'line': line_str,
-                'selected': True,
-                'premium': premium_map.get(line_str)
+                'selected': True
             })
     
     return result

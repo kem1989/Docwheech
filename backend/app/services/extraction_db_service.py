@@ -480,8 +480,7 @@ class ExtractionDatabaseService:
                     line_of_business = LineOfBusiness(
                         submission_id=submission_id,
                         line=LineOfBusinessEnum(lob_data.get("line")) if lob_data.get("line") else None,
-                        selected=lob_data.get("selected", False),
-                        premium=lob_data.get("premium")
+                        selected=lob_data.get("selected", False)
                     )
                     self.db.add(line_of_business)
             
