@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     ALLOWED_FILE_TYPES: str = "pdf,docx,xlsx,jpg,jpeg,png"
     UPLOAD_DIR: str = "uploads"
     
+    # PDF Templates (path inside backend container)
+    ACORD125_TEMPLATE_PATH: str = "/app/static/acord-templates/ACORD_125_fillable.pdf"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

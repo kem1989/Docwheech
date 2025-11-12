@@ -74,6 +74,30 @@ export default function ReviewPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRawData, setShowRawData] = useState(false);
+  const [isFillingPdf, setIsFillingPdf] = useState(false);
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
+
+  const sanitizeAcordForFill = (acord: any) => {
+    try {
+      const clone = JSON.parse(JSON.stringify(acord));
+      // Remove Workers Comp from lines_of_business
+      if (Array.isArray(clone?.lines_of_business)) {
+        clone.lines_of_business = clone.lines_of_business.filter((lob: any) => lob?.line !== 'WORKERS_COMPENSATION');
+      }
+      // Remap Workers Comp prior_carriers to OTHER
+      if (Array.isArray(clone?.prior_carriers)) {
+        clone.prior_carriers = clone.prior_carriers.map((pc: any) => {
+          if (pc && pc.category === 'WORKERS_COMPENSATION') {
+            return { ...pc, category: 'OTHER' };
+          }
+          return pc;
+        });
+      }
+      return clone;
+    } catch {
+      return acord;
+    }
+  };
 
   // Load submission data on mount and when submission ID changes
   useEffect(() => {
@@ -514,6 +538,41 @@ export default function ReviewPage() {
                 </div>
                 <div className="flex space-x-2">
                   <Button
+                    size="sm"
+                    onClick={async () => {
+                      if (!user || !submissionId || !extractedData?.acord_schema) return;
+                      try {
+                        setIsFillingPdf(true);
+                        setError(null);
+                        setPdfDownloadUrl(null);
+                        const sanitized = sanitizeAcordForFill(extractedData.acord_schema);
+                        const res = await apiClient.fillAcord125({
+                          user_id: user.uid || user.id || 'demo-user',
+                          submission_id: submissionId,
+                          acord: sanitized,
+                        });
+                        setPdfDownloadUrl(res.download_url);
+                      } catch (e: any) {
+                        setError(e?.message || 'Failed to fill ACORD 125 PDF');
+                      } finally {
+                        setIsFillingPdf(false);
+                      }
+                    }}
+                    disabled={isFillingPdf}
+                  >
+                    {isFillingPdf ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Filling PDF...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Fill ACORD 125 PDF
+                      </>
+                    )}
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setShowRawData(!showRawData)}
@@ -533,6 +592,26 @@ export default function ReviewPage() {
               </div>
             </CardContent>
           </Card>
+
+          {pdfDownloadUrl && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Filled ACORD 125 PDF</CardTitle>
+                <CardDescription>Your filled form is ready to download.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <a
+                  href={pdfDownloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-blue-600 hover:underline"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Filled ACORD 125
+                </a>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Risk Narrative */}
           {extractedData.risk_narrative && (

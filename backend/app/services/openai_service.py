@@ -107,14 +107,14 @@ Please extract the following ACORD 125 information and return it as a JSON objec
         "email": {{"value": "agency email or null", "confidence": 0.0-1.0}}
     }},
     "transaction_status": {{
-        "type": {{"value": "QUOTE, RENEWAL, ISSUE_POLICY, BOUND, CANCEL, CHANGE or null", "confidence": 0.0-1.0}},
+        "type": {{"value": "QUOTE, RENEW, ISSUE_POLICY, BOUND, CANCEL, CHANGE or null", "confidence": 0.0-1.0}},
         "bound_date": {{"value": "YYYY-MM-DD or null", "confidence": 0.0-1.0}},
         "bound_time": {{"value": "HH:MM AM/PM or null", "confidence": 0.0-1.0}}
     }},
     "policy": {{
         "proposed_effective_date": {{"value": "YYYY-MM-DD or null", "confidence": 0.0-1.0}},
         "proposed_expiration_date": {{"value": "YYYY-MM-DD or null", "confidence": 0.0-1.0}},
-        "billing_plan": {{"value": "billing plan or null", "confidence": 0.0-1.0}},
+        "billing_plan": {{"value": "DIRECT, AGENCY or null", "confidence": 0.0-1.0}},
         "deposit_premium": {{"value": "deposit premium amount or null", "confidence": 0.0-1.0}},
         "minimum_premium": {{"value": "minimum premium or null", "confidence": 0.0-1.0}}
     }},

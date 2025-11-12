@@ -6,11 +6,13 @@ WORKDIR /app
 # Install system dependencies (Alpine uses apk instead of apt)
 RUN apk add --no-cache \
     gcc \
+    g++ \
     musl-dev \
     postgresql-dev \
     curl \
     file \
     libmagic \
+    qpdf-dev \
     && rm -rf /var/cache/apk/*
 
 # Copy requirements first for better caching
