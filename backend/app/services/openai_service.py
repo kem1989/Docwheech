@@ -134,6 +134,10 @@ Please extract the following ACORD 125 information and return it as a JSON objec
         "business_phone": {{"value": "phone or null", "confidence": 0.0-1.0}},
         "website_address": {{"value": "website URL or null", "confidence": 0.0-1.0}}
     }},
+    "other_named_insureds": {{
+        "value": ["list of additional named insured objects with name, mailing address, business structure, number of members/managers if LLC, naics_code, sic_code, fein_or_ssn, business_phone, website_address or null"],
+        "confidence": 0.0-1.0
+    }},
     "contacts": {{
         "value": ["list of contact objects with type, name, email, phone or null"],
         "confidence": 0.0-1.0
@@ -142,10 +146,13 @@ Please extract the following ACORD 125 information and return it as a JSON objec
         "date_business_started": {{"value": "YYYY-MM-DD or null", "confidence": 0.0-1.0}},
         "business_type": {{"value": ["array of business type strings like 'manufacturing', 'retail', 'wholesale', etc. or empty array []"], "confidence": 0.0-1.0}},
         "description_of_primary_operations": {{"value": "primary operations description or null", "confidence": 0.0-1.0}},
-        "retail_stores_or_service_operations": {{"value": "true/false or null", "confidence": 0.0-1.0}}
+        "retail_stores_or_service_operations": {{"value": "true/false or null", "confidence": 0.0-1.0}},
+        "installation_service_repair_work_percent": {{"value": "percentage (0-100) of installation service or repair work or null", "confidence": 0.0-1.0}},
+        "off_premises_installation_service_repair_percent": {{"value": "percentage (0-100) of off premises installation service or repair work or null", "confidence": 0.0-1.0}},
+        "description_of_operations_other_named_insureds": {{"value": "description of operations for other named insureds or null", "confidence": 0.0-1.0}}
     }},
     "premises": {{
-        "value": ["list of premise objects with street address, city, state, zip, operations description, employees, revenues, square footage or null"],
+        "value": ["list of premise objects with street address, city, state, zip, operations description, full time employees, part time employees, revenues, square footage, interest (OWNER or TENANT), any area leased to others (Yes/No) or null"],
         "confidence": 0.0-1.0
     }},
     "prior_carriers": {{
@@ -171,12 +178,16 @@ CRITICAL INSTRUCTIONS:
    - Derive primarily from explicit request phrases (e.g., "Need quotes on", "Coverage requested", "Apply for", "Requested coverages")
    - Use prior carriers ONLY as supporting context; do not add coverages unless they are also requested in the document
 8. For business_type, extract as ARRAY of strings (e.g., ["manufacturing", "wholesale", "retail"]). Derive from industry descriptions or explicit business classifications in the text.
-9. Assign confidence scores based on how clearly information is stated
-10. If information is ambiguous or unclear, assign lower confidence (<0.7)
-11. Return only valid JSON format
-12. For arrays (lines_of_business, contacts, premises, business_type, etc.), return empty array [] if no data found
-13. NAICS codes must be 6 digits
-14. Phone numbers should be in format: (XXX) XXX-XXXX
+9. For premises interest field, use ENUM values: OWNER or TENANT
+10. For premises "any area leased to others" field, extract as boolean (true/false) or Yes/No (convert Yes to true, No to false)
+11. For other_named_insureds business_structure, use the same ENUM values as first_named_insured
+12. For nature_of_business installation_service_repair_work_percent and off_premises_installation_service_repair_percent, extract as numeric percentage values (0-100), not boolean. Extract the actual percentage if stated in the document, otherwise use null.
+13. Assign confidence scores based on how clearly information is stated
+14. If information is ambiguous or unclear, assign lower confidence (<0.7)
+15. Return only valid JSON format
+16. For arrays (lines_of_business, contacts, premises, other_named_insureds, business_type, etc.), return empty array [] if no data found
+17. NAICS codes must be 6 digits
+18. Phone numbers should be in format: (XXX) XXX-XXXX
 """
     
     def _filter_by_confidence(

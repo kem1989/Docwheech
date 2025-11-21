@@ -47,6 +47,58 @@ def unwrap_confidence_objects(data: Any) -> Any:
         return data
 
 
+def coerce_to_bool(value: Any, default: Optional[bool] = None) -> Optional[bool]:
+    """
+    Convert various representations of boolean values into actual booleans.
+    
+    Args:
+        value: Input value to convert
+        default: Default value if conversion fails
+        
+    Returns:
+        Converted boolean or default if conversion not possible
+    """
+    if isinstance(value, bool):
+        return value
+    
+    if value is None:
+        return default
+    
+    if isinstance(value, (int, float)):
+        return bool(value)
+    
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"yes", "true", "1", "y", "t"}:
+            return True
+        if normalized in {"no", "false", "0", "n", "f"}:
+            return False
+    
+    return default
+
+
+def normalize_interest(value: Any) -> Optional[str]:
+    """
+    Normalize premises interest values to OWNER or TENANT.
+    """
+    if value is None:
+        return None
+    
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
+    
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        if normalized in {"OWNER", "TENANT"}:
+            return normalized
+        if normalized in {"OWN", "OWNED"}:
+            return "OWNER"
+        if normalized in {"RENT", "LEASE", "TEN"}:
+            return "TENANT"
+    
+    return None
+
+
 def transform_lines_of_business(raw_lines: Any, prior_carriers: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """
     Transform lines of business from simple list to schema-compliant objects
@@ -125,6 +177,42 @@ def transform_contacts(raw_contacts: Any) -> List[Dict[str, Any]]:
     return result
 
 
+def transform_other_named_insureds(raw_insureds: Any) -> List[Dict[str, Any]]:
+    """
+    Transform other named insureds to schema-compliant format.
+    
+    Args:
+        raw_insureds: Raw list of other named insured entries
+        
+    Returns:
+        List of normalized other named insured objects
+    """
+    if not raw_insureds:
+        return []
+    
+    if not isinstance(raw_insureds, list):
+        return []
+    
+    result = []
+    for insured in raw_insureds:
+        if isinstance(insured, dict):
+            result.append({
+                'name': insured.get('name'),
+                'mailing_address': insured.get('mailing_address') or insured.get('address'),
+                'business_structure': insured.get('business_structure'),
+                'number_of_members': insured.get('number_of_members'),
+                'number_of_managers': insured.get('number_of_managers'),
+                'naics_code': insured.get('naics_code'),
+                'sic_code': insured.get('sic_code'),
+                'gl_code': insured.get('gl_code'),
+                'fein_or_ssn': insured.get('fein_or_ssn'),
+                'business_phone': insured.get('business_phone') or insured.get('phone'),
+                'website_address': insured.get('website_address') or insured.get('website'),
+            })
+    
+    return result
+
+
 def transform_premises(raw_premises: Any) -> List[Dict[str, Any]]:
     """
     Transform premises to schema-compliant format
@@ -153,18 +241,18 @@ def transform_premises(raw_premises: Any) -> List[Dict[str, Any]]:
                 'county': premise.get('county'),
                 'state': premise.get('state'),
                 'zip': premise.get('zip'),
-                'city_limits': premise.get('city_limits', False),
+                'city_limits': coerce_to_bool(premise.get('city_limits'), False),
                 'description_of_operations': premise.get('operations_description') or premise.get('description_of_operations'),
-                'interest': premise.get('interest'),
-                'owner_or_tenant_inside': premise.get('owner_or_tenant_inside', False),
-                'owner_or_tenant_outside': premise.get('owner_or_tenant_outside', False),
-                'number_full_time_employees': premise.get('employees') or premise.get('number_full_time_employees'),
-                'number_part_time_employees': premise.get('number_part_time_employees'),
+                'interest': normalize_interest(premise.get('interest')),
+                'owner_or_tenant_inside': coerce_to_bool(premise.get('owner_or_tenant_inside'), False),
+                'owner_or_tenant_outside': coerce_to_bool(premise.get('owner_or_tenant_outside'), False),
+                'number_full_time_employees': premise.get('full_time_employees') or premise.get('number_full_time_employees') or premise.get('employees'),
+                'number_part_time_employees': premise.get('part_time_employees') or premise.get('number_part_time_employees'),
                 'annual_revenues': premise.get('revenues') or premise.get('annual_revenues'),
                 'occupied_area_sq_ft': premise.get('square_footage') or premise.get('occupied_area_sq_ft'),
                 'total_building_area_sq_ft': premise.get('total_building_area_sq_ft'),
                 'open_to_public_area_sq_ft': premise.get('open_to_public_area_sq_ft'),
-                'any_area_leased_to_others': premise.get('any_area_leased_to_others', False)
+                'any_area_leased_to_others': coerce_to_bool(premise.get('any_area_leased_to_others'), False)
             }
             result.append(transformed)
     
@@ -308,6 +396,10 @@ def transform_extracted_to_acord_schema(extracted_data: Dict[str, Any]) -> Dict[
         # First Named Insured - direct mapping
         if 'first_named_insured' in unwrapped:
             acord_data['first_named_insured'] = unwrapped['first_named_insured']
+        
+        # Other Named Insureds - transform format
+        if 'other_named_insureds' in unwrapped:
+            acord_data['other_named_insureds'] = transform_other_named_insureds(unwrapped['other_named_insureds'])
         
         # Contacts - transform format
         if 'contacts' in unwrapped:

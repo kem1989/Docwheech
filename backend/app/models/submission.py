@@ -52,6 +52,7 @@ class Submission(Base):
     policy = relationship("Policy", back_populates="submission", uselist=False, cascade="all, delete-orphan")
     lines_of_business = relationship("LineOfBusiness", back_populates="submission", cascade="all, delete-orphan")
     first_named_insured = relationship("FirstNamedInsured", back_populates="submission", uselist=False, cascade="all, delete-orphan")
+    other_named_insureds = relationship("OtherNamedInsured", back_populates="submission", cascade="all, delete-orphan")
     contacts = relationship("Contact", back_populates="submission", cascade="all, delete-orphan")
     nature_of_business = relationship("NatureOfBusiness", back_populates="submission", uselist=False, cascade="all, delete-orphan")
     premises = relationship("Premise", back_populates="submission", cascade="all, delete-orphan")

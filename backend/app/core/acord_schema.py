@@ -19,6 +19,53 @@ from app.models.acord_125 import (
 )
 
 
+def _coerce_bool(value: Any, default: Optional[bool] = None) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"yes", "true", "1", "y", "t"}:
+            return True
+        if normalized in {"no", "false", "0", "n", "f"}:
+            return False
+    return default
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.replace(",", "").strip())
+        except (ValueError, AttributeError):
+            return None
+    return None
+
+
+def _normalize_interest(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        if normalized in {"OWNER", "TENANT"}:
+            return normalized
+        if normalized in {"OWN", "OWNED"}:
+            return "OWNER"
+        if normalized in {"RENT", "LEASE", "TEN"}:
+            return "TENANT"
+    return None
+
+
 class AgencySchema(BaseModel):
     """Agency information schema"""
     name: Optional[str] = Field(None, description="Agency name")
@@ -72,6 +119,21 @@ class FirstNamedInsuredSchema(BaseModel):
     website_address: Optional[str] = Field(None, description="Website address")
 
 
+class OtherNamedInsuredSchema(BaseModel):
+    """Other named insured schema"""
+    name: Optional[str] = Field(None, description="Legal name of the additional insured")
+    mailing_address: Optional[str] = Field(None, description="Mailing address")
+    business_structure: Optional[BusinessStructureEnum] = Field(None, description="Business structure")
+    number_of_members: Optional[int] = Field(None, description="Number of LLC members")
+    number_of_managers: Optional[int] = Field(None, description="Number of LLC managers")
+    naics_code: Optional[str] = Field(None, description="NAICS code")
+    sic_code: Optional[str] = Field(None, description="SIC code")
+    gl_code: Optional[str] = Field(None, description="General liability code")
+    fein_or_ssn: Optional[str] = Field(None, description="FEIN or SSN")
+    business_phone: Optional[str] = Field(None, description="Business phone number")
+    website_address: Optional[str] = Field(None, description="Website address")
+
+
 class ContactSchema(BaseModel):
     """Contact information schema"""
     contact_type: Optional[str] = Field(None, description="Type of contact")
@@ -92,7 +154,9 @@ class NatureOfBusinessSchema(BaseModel):
     retail_stores_or_service_operations: Optional[bool] = Field(False, description="Has retail stores or service operations")
     retail_percent_of_total_sales: Optional[Decimal] = Field(None, description="Retail percentage of total sales")
     installation_service_repair_work: Optional[bool] = Field(False, description="Does installation/service/repair work")
+    installation_service_repair_work_percent: Optional[Decimal] = Field(None, description="Percentage (0-100) of installation service or repair work")
     off_premises_installation_service_repair: Optional[bool] = Field(False, description="Off-premises installation/service/repair")
+    off_premises_installation_service_repair_percent: Optional[Decimal] = Field(None, description="Percentage (0-100) of off premises installation service or repair work")
     description_of_operations_other_named_insureds: Optional[str] = Field(None, description="Description of operations for other named insureds")
 
 
@@ -178,6 +242,9 @@ class ACORD125Schema(BaseModel):
     
     # First Named Insured
     first_named_insured: Optional[FirstNamedInsuredSchema] = Field(None, description="First named insured information")
+    
+    # Other Named Insureds
+    other_named_insureds: Optional[List[OtherNamedInsuredSchema]] = Field(None, description="Other named insureds")
     
     # Contact Information
     contacts: Optional[List[ContactSchema]] = Field(None, description="Contact information")
@@ -321,6 +388,33 @@ def create_acord_schema_from_extraction(extracted_data: Dict[str, Any]) -> ACORD
         if 'first_named_insured' in extracted_data:
             schema_data['first_named_insured'] = FirstNamedInsuredSchema(**extracted_data['first_named_insured'])
         
+        # Other named insureds
+        if 'other_named_insureds' in extracted_data:
+            other_named_data = extracted_data['other_named_insureds']
+            if isinstance(other_named_data, dict) and 'value' in other_named_data:
+                other_named_list = other_named_data['value']
+            elif isinstance(other_named_data, list):
+                other_named_list = other_named_data
+            else:
+                other_named_list = []
+            
+            mapped_other_named = []
+            for insured in other_named_list:
+                if isinstance(insured, dict):
+                    mapped_insured = {}
+                    for key, value in insured.items():
+                        if isinstance(value, dict) and 'value' in value and 'confidence' in value:
+                            unwrapped_value = value['value']
+                        else:
+                            unwrapped_value = value
+                        mapped_insured[key] = unwrapped_value
+                    mapped_other_named.append(mapped_insured)
+            
+            if mapped_other_named:
+                schema_data['other_named_insureds'] = [
+                    OtherNamedInsuredSchema(**insured) for insured in mapped_other_named
+                ]
+        
         # Contacts
         if 'contacts' in extracted_data:
             schema_data['contacts'] = [
@@ -329,12 +423,84 @@ def create_acord_schema_from_extraction(extracted_data: Dict[str, Any]) -> ACORD
         
         # Nature of business
         if 'nature_of_business' in extracted_data:
-            schema_data['nature_of_business'] = NatureOfBusinessSchema(**extracted_data['nature_of_business'])
+            nob_data = extracted_data['nature_of_business']
+            # Handle confidence wrappers and convert percentage fields
+            if isinstance(nob_data, dict):
+                mapped_nob = {}
+                for key, value in nob_data.items():
+                    # Unwrap confidence wrapper if present
+                    if isinstance(value, dict) and 'value' in value and 'confidence' in value:
+                        unwrapped_value = value['value']
+                    else:
+                        unwrapped_value = value
+                    
+                    # Convert percentage fields to Decimal
+                    if key in ('installation_service_repair_work_percent', 'off_premises_installation_service_repair_percent'):
+                        if unwrapped_value is not None:
+                            try:
+                                # Convert to Decimal, ensuring it's between 0-100
+                                percent_value = Decimal(str(unwrapped_value))
+                                if percent_value < 0:
+                                    percent_value = Decimal('0')
+                                elif percent_value > 100:
+                                    percent_value = Decimal('100')
+                                mapped_nob[key] = percent_value
+                            except (ValueError, TypeError):
+                                mapped_nob[key] = None
+                        else:
+                            mapped_nob[key] = None
+                    else:
+                        mapped_nob[key] = unwrapped_value
+                
+                schema_data['nature_of_business'] = NatureOfBusinessSchema(**mapped_nob)
+            else:
+                schema_data['nature_of_business'] = NatureOfBusinessSchema(**nob_data)
         
         # Premises
         if 'premises' in extracted_data:
+            premises_data = extracted_data['premises']
+            # Handle confidence wrapper structure
+            if isinstance(premises_data, dict) and 'value' in premises_data:
+                premises_list = premises_data['value']
+            elif isinstance(premises_data, list):
+                premises_list = premises_data
+            else:
+                premises_list = []
+            
+            # Map and transform each premise
+            mapped_premises = []
+            for premise in premises_list:
+                if isinstance(premise, dict):
+                    # Map field names and unwrap confidence objects if needed
+                    mapped_premise = {}
+                    for key, value in premise.items():
+                        # Unwrap confidence wrapper if present
+                        if isinstance(value, dict) and 'value' in value and 'confidence' in value:
+                            unwrapped_value = value['value']
+                        else:
+                            unwrapped_value = value
+                        
+                        # Map field names
+                        if key == 'full_time_employees':
+                            mapped_premise['number_full_time_employees'] = _coerce_int(unwrapped_value)
+                        elif key == 'part_time_employees':
+                            mapped_premise['number_part_time_employees'] = _coerce_int(unwrapped_value)
+                        elif key == 'employees':
+                            # Legacy support - if only combined employees field exists
+                            mapped_premise['number_full_time_employees'] = _coerce_int(unwrapped_value)
+                        elif key == 'interest':
+                            mapped_premise['interest'] = _normalize_interest(unwrapped_value)
+                        elif key in {'owner_or_tenant_inside', 'owner_or_tenant_outside', 'city_limits'}:
+                            mapped_premise[key] = _coerce_bool(unwrapped_value, False)
+                        elif key == 'any_area_leased_to_others':
+                            mapped_premise[key] = _coerce_bool(unwrapped_value, False)
+                        else:
+                            mapped_premise[key] = unwrapped_value
+                    
+                    mapped_premises.append(mapped_premise)
+            
             schema_data['premises'] = [
-                PremiseSchema(**premise) for premise in extracted_data['premises']
+                PremiseSchema(**premise) for premise in mapped_premises
             ]
         
         # Prior carriers

@@ -17,6 +17,7 @@ import {
   Clock,
   Building2,
   User,
+  Users,
   FileText,
   MapPin,
   Phone,
@@ -96,6 +97,21 @@ const ValidationStatusIcon = ({ status }: { status: string }) => {
     default:
       return <Clock className="h-4 w-4 text-yellow-500" />;
   }
+};
+
+const sectionIconMap: Record<string, React.ComponentType<any>> = {
+  agency: Building2,
+  transaction_status: Clock,
+  policy: FileText,
+  lines_of_business: FileText,
+  first_named_insured: User,
+  other_named_insureds: Users,
+  contacts: Phone,
+  nature_of_business: FileText,
+  premises: MapPin,
+  prior_carriers: DollarSign,
+  loss_history: AlertCircle,
+  signatures: Edit,
 };
 
 const FieldEditor = ({ 
@@ -504,31 +520,37 @@ export default function ACORDDataDisplay({
       {/* Data Display */}
       {activeTab === 'extracted' && extractedData && (
         <div className="space-y-4">
-          {Object.entries(extractedData).map(([section, data]) => (
+          {Object.entries(extractedData).map(([section, data]) => {
+            const SectionIcon = sectionIconMap[section] ?? FileText;
+            return (
             <SectionDisplay
               key={section}
               title={section.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
               data={data}
-              icon={FileText}
+              icon={SectionIcon}
               onFieldEdit={handleFieldEdit}
               onFieldValidate={handleFieldValidate}
             />
-          ))}
+          );
+          })}
         </div>
       )}
 
       {activeTab === 'acord' && acordSchema && (
         <div className="space-y-4">
-          {Object.entries(acordSchema).map(([section, data]) => (
+          {Object.entries(acordSchema).map(([section, data]) => {
+            const SectionIcon = sectionIconMap[section] ?? FileText;
+            return (
             <SectionDisplay
               key={section}
               title={section.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
               data={data}
-              icon={FileText}
+              icon={SectionIcon}
               onFieldEdit={handleFieldEdit}
               onFieldValidate={handleFieldValidate}
             />
-          ))}
+          );
+          })}
         </div>
       )}
 

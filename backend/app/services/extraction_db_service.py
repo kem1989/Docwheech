@@ -17,6 +17,7 @@ from app.models.acord_125 import (
     Policy,
     LineOfBusiness,
     FirstNamedInsured,
+    OtherNamedInsured,
     Contact,
     NatureOfBusiness,
     Premise,
@@ -503,6 +504,25 @@ class ExtractionDatabaseService:
                 )
                 self.db.add(first_named_insured)
             
+            # Save Other Named Insureds
+            if "other_named_insureds" in acord_data:
+                for oni_data in acord_data["other_named_insureds"]:
+                    other_named_insured = OtherNamedInsured(
+                        submission_id=submission_id,
+                        name=oni_data.get("name"),
+                        mailing_address=oni_data.get("mailing_address"),
+                        business_structure=BusinessStructureEnum(oni_data.get("business_structure")) if oni_data.get("business_structure") else None,
+                        number_of_members=oni_data.get("number_of_members"),
+                        number_of_managers=oni_data.get("number_of_managers"),
+                        naics_code=oni_data.get("naics_code"),
+                        sic_code=oni_data.get("sic_code"),
+                        gl_code=oni_data.get("gl_code"),
+                        fein_or_ssn=oni_data.get("fein_or_ssn"),
+                        business_phone=oni_data.get("business_phone"),
+                        website_address=oni_data.get("website_address"),
+                    )
+                    self.db.add(other_named_insured)
+            
             # Save Contacts
             if "contacts" in acord_data:
                 for contact_data in acord_data["contacts"]:
@@ -673,6 +693,10 @@ class ExtractionDatabaseService:
             fni = self.db.query(FirstNamedInsured).filter(FirstNamedInsured.submission_id == submission_id).first()
             if fni:
                 result["first_named_insured"] = fni.to_dict()
+            
+            other_named_insureds = self.db.query(OtherNamedInsured).filter(OtherNamedInsured.submission_id == submission_id).all()
+            if other_named_insureds:
+                result["other_named_insureds"] = [oni.to_dict() for oni in other_named_insureds]
             
             # Get Contacts
             contacts = self.db.query(Contact).filter(Contact.submission_id == submission_id).all()

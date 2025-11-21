@@ -263,6 +263,54 @@ class FirstNamedInsured(Base):
         }
 
 
+class OtherNamedInsured(Base):
+    """Other named insured model"""
+    
+    __tablename__ = "other_named_insureds"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    submission_id = Column(UUID(as_uuid=True), ForeignKey("submissions.id"), nullable=False, index=True)
+    
+    # Additional insured details
+    name = Column(String(255), nullable=False)
+    mailing_address = Column(Text, nullable=True)
+    business_structure = Column(Enum(BusinessStructureEnum), nullable=True)
+    number_of_members = Column(Integer, nullable=True)
+    number_of_managers = Column(Integer, nullable=True)
+    naics_code = Column(String(10), nullable=True)
+    sic_code = Column(String(10), nullable=True)
+    gl_code = Column(String(10), nullable=True)
+    fein_or_ssn = Column(String(20), nullable=True)
+    business_phone = Column(String(50), nullable=True)
+    website_address = Column(String(255), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    submission = relationship("Submission", back_populates="other_named_insureds")
+    
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "submission_id": str(self.submission_id),
+            "name": self.name,
+            "mailing_address": self.mailing_address,
+            "business_structure": self.business_structure.value if self.business_structure else None,
+            "number_of_members": self.number_of_members,
+            "number_of_managers": self.number_of_managers,
+            "naics_code": self.naics_code,
+            "sic_code": self.sic_code,
+            "gl_code": self.gl_code,
+            "fein_or_ssn": self.fein_or_ssn,
+            "business_phone": self.business_phone,
+            "website_address": self.website_address,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class Contact(Base):
     """Contact information model"""
     
