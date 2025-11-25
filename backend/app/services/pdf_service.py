@@ -21,6 +21,7 @@ from app.core.pdf_field_mapping import (
     BUSINESS_STRUCTURE_CHECKBOX_MAPPING,
     TRANSACTION_STATUS_NORMALIZATION,
     TRANSACTION_STATUS_CHECKBOX_MAPPING,
+    GENERAL_QUESTIONS_MAPPING,
     format_value_for_pdf,
 )
 PRIOR_CARRIER_SLOT_LETTERS = {0: "A", 1: "B", 2: "C"}
@@ -78,7 +79,7 @@ def _flatten_schema_paths(acord: ACORD125Schema) -> Dict[str, Any]:
     return flattened
 
 
-def generate_filled_pdf_bytes(acord: ACORD125Schema) -> bytes:
+def generate_filled_pdf_bytes(acord: ACORD125Schema, general_questions: Optional[List[Dict[str, Any]]] = None) -> bytes:
     """Fill ACORD 125 PDF with mapped fields and return bytes of the filled PDF."""
     template_path = settings.ACORD125_TEMPLATE_PATH
     if not os.path.isfile(template_path):
@@ -292,6 +293,64 @@ def generate_filled_pdf_bytes(acord: ACORD125Schema) -> bytes:
                 if formatted:
                     field_values[field_name] = formatted
                     logger.info(f"Mapped loss[{idx}] amount_paid -> '{field_name}' = '{formatted}'")
+
+    # Process general questions if provided
+    if general_questions:
+        logger.info(f"Processing {len(general_questions)} general questions")
+        for question in general_questions:
+            question_id = question.get("id")
+            answer = question.get("answer")
+            details = question.get("details")
+            
+            if question_id not in GENERAL_QUESTIONS_MAPPING:
+                logger.warning(f"Unknown general question ID: {question_id}")
+                continue
+            
+            mapping = GENERAL_QUESTIONS_MAPPING[question_id]
+            checkbox_field = mapping.get("checkbox")
+            details_field = mapping.get("details")
+            structured_detail_fields = mapping.get("detail_fields")
+            
+            # Fill with "Y" for Yes, "N" for No (not checkbox states)
+            if checkbox_field and answer is not None:
+                # Map True -> "Y", False -> "N"
+                answer_value = "Y" if answer is True else "N"
+                field_values[checkbox_field] = answer_value
+                logger.info(f"Mapped general question '{question_id}' field '{checkbox_field}' = '{answer_value}'")
+            
+            # Fill structured detail fields if configured
+            if (
+                structured_detail_fields
+                and isinstance(details, dict)
+                and answer is True
+            ):
+                for detail_key, pdf_field in structured_detail_fields.items():
+                    field_value = details.get(detail_key)
+                    if field_value not in (None, ""):
+                        formatted_detail = format_value_for_pdf(
+                            f"general_questions.{question_id}.{detail_key}", field_value
+                        )
+                        if formatted_detail:
+                            field_values[pdf_field] = formatted_detail
+                            logger.info(
+                                "Mapped general question '%s' structured detail '%s' -> '%s' = '%s'",
+                                question_id,
+                                detail_key,
+                                pdf_field,
+                                formatted_detail,
+                            )
+
+            # Fill single details text field if configured and answer is Yes
+            if (
+                details_field
+                and answer is True
+                and isinstance(details, str)
+                and details
+            ):
+                formatted_details = format_value_for_pdf(f"general_questions.{question_id}.details", details)
+                if formatted_details:
+                    field_values[details_field] = formatted_details
+                    logger.info(f"Mapped general question '{question_id}' details -> '{details_field}' = '{formatted_details[:50]}...'")
 
     logger.warning(
         f"Prepared {len(field_values)} text fields and {len(checkbox_field_values)} checkboxes to fill"

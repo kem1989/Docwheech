@@ -189,6 +189,80 @@ BUSINESS_STRUCTURE_CHECKBOX_MAPPING: Dict[str, str] = {
 }
 
 
+# General Questions mapping: question_id -> metadata
+# Some questions have structured detail fields, others a single details text field.
+GENERAL_QUESTIONS_MAPPING: Dict[str, Dict[str, Any]] = {
+    "is_subsidiary": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AAICode_A[0]",
+        "detail_fields": {
+            "parent_company": "F[0].P3[0].BusinessInformation_ParentOrganizationName_A[0]",
+            "relationship_description": "F[0].P3[0].Subsidiary_ParentSubsidiaryRelationshipDescription_A[0]",
+            "ownership_percentage": "F[0].P3[0].Subsidiary_ParentOwnershipPercent_A[0]",
+        },
+    },
+    "has_subsidiaries": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AAJCode_A[0]",
+        "detail_fields": {
+            "subsidiary_company": "F[0].P3[0].Subsidiary_OrganizationName_A[0]",
+            "relationship_description": "F[0].P3[0].Subsidiary_ParentSubsidiaryRelationshipDescription_B[0]",
+            "ownership_percentage": "F[0].P3[0].Subsidiary_ParentOwnershipPercent_B[0]",
+        },
+    },
+    "formal_safety_program": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KAACode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_FormalSafetyProgram_OtherDescription_B[0]",
+    },
+    "flammables_exposure": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_ABCCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_AnyExposureToFlammableExplosivesChemicalsExplanation_A[0]",
+    },
+    "other_insurance_with_company": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AAHCode_A[0]",
+        "details": None,  # Details go in OtherPolicy_LineOfBusinessCode fields
+    },
+    "policy_declined_cancelled": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AACCode_A[0]",
+        "details": None,  # Details would go in a separate explanation field if available
+    },
+    "sexual_abuse_claims": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AADCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_PastLossesClaimsRelatingSexualAbuseDiscriminationNegligentHiringExplanation_A[0]",
+    },
+    "fraud_arson_conviction": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KABCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_PastFiveYearsAnyApplicantIndictedOrConvictedFraudBriberyArsonExplanation_A[0]",
+    },
+    "fire_code_violations": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_AAFCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_UncorrectedFireCodeViolationExplanation_A[0]",
+    },
+    "foreclosure_bankruptcy": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KAKCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_ForeclosureRepossessionBankruptcyExplanation_A[0]",
+    },
+    "judgement_or_lien": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KALCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_JudgementOrLienExplanation_A[0]",
+    },
+    "business_in_trust": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KACCode_A[0]",
+        "details": None,  # Details field not found in mapping
+    },
+    "foreign_operations": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KAMCode_A[0]",
+        "details": None,  # Details field not found in mapping
+    },
+    "other_business_ventures": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KANCode_A[0]",
+        "details": None,  # Details field not found in mapping
+    },
+    "drones": {
+        "checkbox": "F[0].P3[0].CommercialPolicy_Question_KAOCode_A[0]",
+        "details": "F[0].P3[0].CommercialPolicy_ApplicantOwnLeaseOperateDronesExplanation_A[0]",
+    },
+}
+
+
 def format_value_for_pdf(field_path: str, value: Any) -> str:
     """Light formatting for common types before placing into PDF fields."""
     if value is None:

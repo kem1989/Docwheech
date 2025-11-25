@@ -27,6 +27,7 @@ class Submission(Base):
     # ACORD data
     acord_data = Column(JSON, nullable=True)  # Structured ACORD 125 data
     extracted_data = Column(JSON, nullable=True)  # Raw extracted data before ACORD conversion
+    general_questions = Column(JSON, nullable=True)  # Manual responses for ACORD general questions
     
     # Processing status
     extraction_status = Column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
@@ -73,6 +74,7 @@ class Submission(Base):
             "submission_type": self.submission_type,
             "acord_data": self.acord_data,
             "extracted_data": self.extracted_data,
+            "general_questions": self.general_questions,
             "extraction_status": self.extraction_status,
             "extraction_progress": self.extraction_progress,
             "extraction_error": self.extraction_error,

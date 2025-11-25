@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import ACORDDataDisplay from '@/components/review/ACORDDataDisplay';
 import ExtractionProgress from '@/components/review/ExtractionProgress';
+import GeneralQuestionsForm from '@/components/review/GeneralQuestionsForm';
 
 interface ExtractionStatus {
   submission_id: string;
@@ -639,6 +640,21 @@ export default function ReviewPage() {
             onFieldValidate={(fieldPath) => {
               console.log('Field validate:', fieldPath);
               // TODO: Implement field validation
+            }}
+          />
+
+          {/* General Questions Section */}
+          <GeneralQuestionsForm
+            submissionId={submissionId!}
+            initialQuestions={currentSubmission?.general_questions}
+            onSave={(questions) => {
+              // Update submission in store
+              if (currentSubmission) {
+                setCurrentSubmission({
+                  ...currentSubmission,
+                  general_questions: questions
+                });
+              }
             }}
           />
 

@@ -26,6 +26,12 @@ export interface Document {
   processed_at?: string;
 }
 
+export interface GeneralQuestion {
+  id: string;
+  answer: boolean | null;
+  details: string | Record<string, any> | null;
+}
+
 export interface Submission {
   id: string;
   user_id: string;
@@ -34,6 +40,7 @@ export interface Submission {
   submission_type: 'acord_125' | 'custom';
   acord_data?: any;
   extracted_data?: any;
+  general_questions?: GeneralQuestion[];
   extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
   extraction_progress: number;
   extraction_error?: string;

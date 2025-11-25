@@ -2,12 +2,19 @@
 ACORD form API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Request, Body
+from fastapi import APIRouter, HTTPException, Request, Body, Depends
 from pydantic import BaseModel, ValidationError
+from sqlalchemy.orm import Session
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
+from app.database import get_db
+from app.models import Submission
 from app.core.acord_schema import ACORD125Schema
+from app.core.general_questions import (
+    GENERAL_QUESTION_DEFINITIONS,
+    get_default_general_question_responses
+)
 from app.services.pdf_service import (
     generate_filled_pdf_bytes,
     save_filled_pdf_to_s3,
@@ -34,7 +41,10 @@ async def get_acord_schema():
 
 
 @router.post("/fill")
-async def fill_acord_form(request_body: Dict[str, Any] = Body(...)):
+async def fill_acord_form(
+    request_body: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
     """Fill ACORD 125 PDF and return S3 download URL."""
     try:
         # Extract request parameters
@@ -47,6 +57,15 @@ async def fill_acord_form(request_body: Dict[str, Any] = Body(...)):
                 status_code=422,
                 detail=f"Missing required fields: user_id={user_id}, submission_id={submission_id}, acord={acord_data is not None}"
             )
+        
+        # Fetch submission to get general_questions
+        submission = db.query(Submission).filter(Submission.id == submission_id).first()
+        general_questions = None
+        if submission and submission.general_questions:
+            general_questions = submission.general_questions
+            logger.info(f"Found {len(general_questions)} general questions for submission {submission_id}")
+        else:
+            logger.info(f"No general questions found for submission {submission_id}")
         
         # Try to parse ACORD data into schema (lenient validation)
         try:
@@ -74,8 +93,8 @@ async def fill_acord_form(request_body: Dict[str, Any] = Body(...)):
                 detail=f"Failed to parse ACORD data: {str(e)}"
             )
         
-        # Generate filled PDF
-        pdf_bytes = generate_filled_pdf_bytes(acord_schema)
+        # Generate filled PDF with general questions
+        pdf_bytes = generate_filled_pdf_bytes(acord_schema, general_questions=general_questions)
         key, url = save_filled_pdf_to_s3(user_id, submission_id, pdf_bytes)
         return {"s3_key": key, "download_url": url}
         
@@ -101,4 +120,13 @@ async def get_template_status():
         "resolved_path": str(__import__('os').path.abspath(__import__('app.config').config.settings.ACORD125_TEMPLATE_PATH)),
         "field_count": len(fields),
         "fields": fields,
+    }
+
+
+@router.get("/general-questions")
+async def get_general_questions():
+    """Get ACORD 125 General Questions definitions"""
+    return {
+        "questions": GENERAL_QUESTION_DEFINITIONS,
+        "default_responses": get_default_general_question_responses()
     }

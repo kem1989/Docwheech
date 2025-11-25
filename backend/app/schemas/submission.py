@@ -2,7 +2,7 @@
 Pydantic schemas for submission-related requests and responses
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field, UUID4
 from enum import Enum
@@ -41,12 +41,28 @@ class SubmissionCreate(SubmissionBase):
     pass
 
 
+class GeneralQuestion(BaseModel):
+    """Schema for manual general question response"""
+    id: str = Field(..., description="Stable identifier for the general question")
+    answer: Optional[bool] = Field(None, description="Yes/No response")
+    details: Optional[Union[str, Dict[str, Any]]] = Field(
+        None,
+        description="Optional explanation or supporting detail. For certain questions this may be a structured object.",
+    )
+
+
+class GeneralQuestionsPayload(BaseModel):
+    """Wrapper schema for a list of general question responses"""
+    responses: List[GeneralQuestion]
+
+
 class SubmissionUpdate(BaseModel):
     """Schema for updating a submission"""
     title: Optional[str] = None
     status: Optional[SubmissionStatus] = None
     acord_data: Optional[Dict[str, Any]] = None
     extracted_data: Optional[Dict[str, Any]] = None
+    general_questions: Optional[List[GeneralQuestion]] = None
     extraction_status: Optional[ExtractionStatus] = None
     extraction_progress: Optional[int] = Field(None, ge=0, le=100)
     extraction_error: Optional[str] = None
@@ -59,6 +75,7 @@ class SubmissionResponse(SubmissionBase):
     status: SubmissionStatus
     acord_data: Optional[Dict[str, Any]] = None
     extracted_data: Optional[Dict[str, Any]] = None
+    general_questions: Optional[List[GeneralQuestion]] = None
     extraction_status: ExtractionStatus
     extraction_progress: int = Field(ge=0, le=100)
     extraction_error: Optional[str] = None

@@ -14,12 +14,13 @@ from app.database import get_db
 from app.core.security import get_current_active_user
 from app.models import User, Submission, Document
 from app.schemas.submission import (
-    SubmissionCreate, SubmissionResponse, SubmissionSummary,
+    SubmissionCreate, SubmissionResponse, SubmissionSummary, SubmissionUpdate,
     FileUploadRequest, FileUploadResponse, DocumentResponse,
-    DocumentListResponse, FileInfo
+    DocumentListResponse, FileInfo, GeneralQuestion, SubmissionType
 )
 from app.services.s3_service import s3_service
 from app.services.file_validation import file_validation_service
+from app.core.general_questions import get_default_general_question_responses
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -33,12 +34,18 @@ async def create_submission(
 ):
     """Create a new submission"""
     try:
+        # Initialize default general questions for ACORD 125 submissions
+        general_questions = None
+        if submission_data.submission_type == SubmissionType.ACORD_125:
+            general_questions = get_default_general_question_responses()
+        
         # Create new submission
         submission = Submission(
             user_id=current_user.id,
             title=submission_data.title,
             submission_type=submission_data.submission_type.value,
-            status="draft"
+            status="draft",
+            general_questions=general_questions
         )
         
         db.add(submission)
@@ -465,6 +472,71 @@ async def validate_file(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File validation failed: {str(e)}"
+        )
+
+
+@router.patch("/submissions/{submission_id}", response_model=SubmissionResponse)
+async def update_submission(
+    submission_id: str,
+    submission_update: SubmissionUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Update a submission (including general questions)"""
+    try:
+        # Get submission and verify ownership
+        submission = db.query(Submission).filter(
+            Submission.id == submission_id,
+            Submission.user_id == current_user.id
+        ).first()
+        
+        if not submission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Submission not found"
+            )
+        
+        # Update fields if provided
+        if submission_update.title is not None:
+            submission.title = submission_update.title
+        if submission_update.status is not None:
+            submission.status = submission_update.status.value
+        if submission_update.acord_data is not None:
+            submission.acord_data = submission_update.acord_data
+        if submission_update.extracted_data is not None:
+            submission.extracted_data = submission_update.extracted_data
+        if submission_update.general_questions is not None:
+            # Convert Pydantic models to dict for JSON storage
+            submission.general_questions = [
+                {
+                    "id": q.id,
+                    "answer": q.answer,
+                    "details": q.details
+                }
+                for q in submission_update.general_questions
+            ]
+        if submission_update.extraction_status is not None:
+            submission.extraction_status = submission_update.extraction_status.value
+        if submission_update.extraction_progress is not None:
+            submission.extraction_progress = submission_update.extraction_progress
+        if submission_update.extraction_error is not None:
+            submission.extraction_error = submission_update.extraction_error
+        
+        submission.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(submission)
+        
+        logger.info(f"Updated submission {submission_id}")
+        return submission
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update submission: {str(e)}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update submission: {str(e)}"
         )
 
 
