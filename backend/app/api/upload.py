@@ -373,10 +373,11 @@ async def get_submission_files(
                 detail="Submission not found"
             )
         
-        # Get documents
+        # Get documents - ordered by created_at ASC so first uploaded document comes first
+        # This is important for extraction: main application should be processed before supporting docs
         documents = db.query(Document).filter(
             Document.submission_id == submission_id
-        ).order_by(Document.created_at.desc()).all()
+        ).order_by(Document.created_at.asc()).all()
         
         # Generate download URLs for documents
         for doc in documents:

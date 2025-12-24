@@ -415,11 +415,47 @@ def create_acord_schema_from_extraction(extracted_data: Dict[str, Any]) -> ACORD
                     OtherNamedInsuredSchema(**insured) for insured in mapped_other_named
                 ]
         
-        # Contacts
+        # Contacts - handle confidence wrapper structure
         if 'contacts' in extracted_data:
-            schema_data['contacts'] = [
-                ContactSchema(**contact) for contact in extracted_data['contacts']
-            ]
+            contacts_data = extracted_data['contacts']
+            # Handle confidence wrapper structure: {"value": [...], "confidence": X}
+            if isinstance(contacts_data, dict) and 'value' in contacts_data:
+                contacts_list = contacts_data['value']
+            elif isinstance(contacts_data, list):
+                contacts_list = contacts_data
+            else:
+                contacts_list = []
+            
+            # Map and transform each contact
+            mapped_contacts = []
+            for contact in contacts_list:
+                if isinstance(contact, dict):
+                    mapped_contact = {}
+                    for key, value in contact.items():
+                        # Unwrap confidence wrapper if present
+                        if isinstance(value, dict) and 'value' in value and 'confidence' in value:
+                            unwrapped_value = value['value']
+                        else:
+                            unwrapped_value = value
+                        
+                        # Map field names (OpenAI may use 'type' instead of 'contact_type', 'name' instead of 'contact_name', etc.)
+                        if key == 'type':
+                            mapped_contact['contact_type'] = unwrapped_value
+                        elif key == 'name':
+                            mapped_contact['contact_name'] = unwrapped_value
+                        elif key == 'email':
+                            mapped_contact['primary_email'] = unwrapped_value
+                        elif key == 'phone':
+                            mapped_contact['primary_phone'] = unwrapped_value
+                        else:
+                            mapped_contact[key] = unwrapped_value
+                    
+                    mapped_contacts.append(mapped_contact)
+            
+            if mapped_contacts:
+                schema_data['contacts'] = [
+                    ContactSchema(**contact) for contact in mapped_contacts
+                ]
         
         # Nature of business
         if 'nature_of_business' in extracted_data:
@@ -503,11 +539,43 @@ def create_acord_schema_from_extraction(extracted_data: Dict[str, Any]) -> ACORD
                 PremiseSchema(**premise) for premise in mapped_premises
             ]
         
-        # Prior carriers
+        # Prior carriers - handle confidence wrapper structure
         if 'prior_carriers' in extracted_data:
-            schema_data['prior_carriers'] = [
-                PriorCarrierSchema(**carrier) for carrier in extracted_data['prior_carriers']
-            ]
+            prior_carriers_data = extracted_data['prior_carriers']
+            # Handle confidence wrapper structure: {"value": [...], "confidence": X}
+            if isinstance(prior_carriers_data, dict) and 'value' in prior_carriers_data:
+                carriers_list = prior_carriers_data['value']
+            elif isinstance(prior_carriers_data, list):
+                carriers_list = prior_carriers_data
+            else:
+                carriers_list = []
+            
+            # Map and transform each carrier
+            mapped_carriers = []
+            for carrier in carriers_list:
+                if isinstance(carrier, dict):
+                    mapped_carrier = {}
+                    for key, value in carrier.items():
+                        # Unwrap confidence wrapper if present
+                        if isinstance(value, dict) and 'value' in value and 'confidence' in value:
+                            unwrapped_value = value['value']
+                        else:
+                            unwrapped_value = value
+                        
+                        # Map field names (OpenAI may use different names)
+                        if key == 'effective':
+                            mapped_carrier['effective_date'] = unwrapped_value
+                        elif key == 'expiration':
+                            mapped_carrier['expiration_date'] = unwrapped_value
+                        else:
+                            mapped_carrier[key] = unwrapped_value
+                    
+                    mapped_carriers.append(mapped_carrier)
+            
+            if mapped_carriers:
+                schema_data['prior_carriers'] = [
+                    PriorCarrierSchema(**carrier) for carrier in mapped_carriers
+                ]
         
         # Loss history
         if 'loss_history' in extracted_data:

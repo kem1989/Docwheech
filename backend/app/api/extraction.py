@@ -47,6 +47,49 @@ class ExtractionStatusResponse(BaseModel):
     extraction_error: str | None = None
 
 
+class FieldUpdateRequest(BaseModel):
+    """Request model for updating a single field"""
+    field_path: str
+    new_value: Any
+
+
+class MultiFieldUpdateRequest(BaseModel):
+    """Request model for updating multiple fields"""
+    changes: Dict[str, Any]  # field_path -> new_value
+
+
+class FieldUpdateResponse(BaseModel):
+    """Response model for field update"""
+    success: bool
+    field_path: str
+    old_value: Any
+    new_value: Any
+    updated_at: str
+
+
+class MultiFieldUpdateResponse(BaseModel):
+    """Response model for multiple field updates"""
+    success: bool
+    updated_fields: List[str]
+    failed_fields: List[str]
+    updated_at: str
+
+
+class EditHistoryEntry(BaseModel):
+    """Model for a single edit history entry"""
+    field_path: str
+    old_value: Any
+    new_value: Any
+    edited_at: str
+    edited_by: str | None = None
+
+
+class EditHistoryResponse(BaseModel):
+    """Response model for edit history"""
+    submission_id: str
+    edit_history: List[EditHistoryEntry]
+
+
 @router.post("/extract", response_model=ExtractionResponse)
 async def extract_data(
     request: ExtractionRequest,
@@ -331,6 +374,147 @@ async def get_extraction_result(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve results: {str(e)}")
 
 
+# =============================================================================
+# FIELD EDITING ENDPOINTS
+# =============================================================================
+
+@router.patch("/{submission_id}/field", response_model=FieldUpdateResponse)
+async def update_extracted_field(
+    submission_id: str,
+    request: FieldUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a single extracted field value.
+    
+    This endpoint allows brokers to manually correct or update extracted data.
+    Changes are tracked for audit purposes and the field confidence is set to 1.0
+    to indicate it was manually verified.
+    """
+    try:
+        logger.info(f"Updating field {request.field_path} for submission {submission_id}")
+        
+        db_service = ExtractionDatabaseService(db)
+        
+        # Get current value before update
+        old_value = db_service.get_field_value(submission_id, request.field_path)
+        
+        # Update the field
+        success = db_service.update_extracted_field(
+            submission_id=submission_id,
+            field_path=request.field_path,
+            new_value=request.new_value,
+            user_id=str(current_user.id)
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Submission or field not found")
+        
+        from datetime import datetime
+        return FieldUpdateResponse(
+            success=True,
+            field_path=request.field_path,
+            old_value=old_value,
+            new_value=request.new_value,
+            updated_at=datetime.utcnow().isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update field: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update field: {str(e)}")
+
+
+@router.patch("/{submission_id}/fields", response_model=MultiFieldUpdateResponse)
+async def update_multiple_extracted_fields(
+    submission_id: str,
+    request: MultiFieldUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update multiple extracted fields at once.
+    
+    Useful for batch updates when multiple fields are edited before saving.
+    """
+    try:
+        logger.info(f"Updating {len(request.changes)} fields for submission {submission_id}")
+        
+        db_service = ExtractionDatabaseService(db)
+        
+        updated_fields = []
+        failed_fields = []
+        
+        for field_path, new_value in request.changes.items():
+            try:
+                success = db_service.update_extracted_field(
+                    submission_id=submission_id,
+                    field_path=field_path,
+                    new_value=new_value,
+                    user_id=str(current_user.id)
+                )
+                
+                if success:
+                    updated_fields.append(field_path)
+                else:
+                    failed_fields.append(field_path)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to update field {field_path}: {str(e)}")
+                failed_fields.append(field_path)
+        
+        from datetime import datetime
+        return MultiFieldUpdateResponse(
+            success=len(failed_fields) == 0,
+            updated_fields=updated_fields,
+            failed_fields=failed_fields,
+            updated_at=datetime.utcnow().isoformat()
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to update fields: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update fields: {str(e)}")
+
+
+@router.get("/{submission_id}/edit-history", response_model=EditHistoryResponse)
+async def get_field_edit_history(
+    submission_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the edit history for a submission.
+    
+    Returns all field edits made to the extracted data, useful for
+    auditing and reviewing changes.
+    """
+    try:
+        logger.info(f"Getting edit history for submission {submission_id}")
+        
+        db_service = ExtractionDatabaseService(db)
+        history = db_service.get_edit_history(submission_id)
+        
+        return EditHistoryResponse(
+            submission_id=submission_id,
+            edit_history=[
+                EditHistoryEntry(
+                    field_path=entry['field_path'],
+                    old_value=entry['old_value'],
+                    new_value=entry['new_value'],
+                    edited_at=entry['edited_at'],
+                    edited_by=entry.get('edited_by')
+                )
+                for entry in history
+            ]
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get edit history: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get edit history: {str(e)}")
+
+
 async def _run_extraction_task(
     submission_id: str,
     document_keys: List[str],
@@ -349,38 +533,39 @@ async def _run_extraction_task(
     - 80-100%: ACORD Mapping
     """
     from app.database import SessionLocal
+    import traceback
     
     db = SessionLocal()
     db_service = ExtractionDatabaseService(db)
     
     try:
-        print(f"=== Running AI extraction task for submission {submission_id} ===")
-        logger.info(f"Running AI extraction task for submission {submission_id}")
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"STARTING AI EXTRACTION TASK")
+        logger.info(f"Submission ID: {submission_id}")
+        logger.info(f"Documents: {len(document_keys)}")
+        for i, key in enumerate(document_keys):
+            logger.info(f"  Doc {i+1}: {key}")
+        logger.info(f"{'='*60}")
         
         # Step 1: Document Analysis (0-20%)
-        logger.info(f"=== CHECKPOINT 1: About to update to 10% ===")
+        logger.info(f"Step 1: Document Analysis - updating to 10%")
         db_service.update_extraction_progress(submission_id, 10, "processing")
-        print(f"=== Step 1: Document Analysis - 10% ===")
-        logger.info(f"=== CHECKPOINT 2: Updated to 10%, now updating to 20% ===")
         
         db_service.update_extraction_progress(submission_id, 20, "processing")
-        logger.info(f"=== CHECKPOINT 3: Updated to 20% ===")
-        print(f"=== Step 2: Text Extraction Starting - 20% ===")
-        logger.info(f"=== CHECKPOINT 4: About to define callback ===")
+        logger.info(f"Step 2: Starting Text Extraction (Textract) - 20%")
         
         # Define progress callback to update database during extraction
         def update_progress(progress: int):
             """Callback to update progress in database during extraction"""
             try:
                 db_service.update_extraction_progress(submission_id, progress, "processing")
-                print(f"=== Progress Update: {progress}% ===")
-                logger.info(f"Extraction progress for {submission_id}: {progress}%")
+                logger.info(f"Progress update: {progress}%")
             except Exception as e:
                 logger.error(f"Failed to update progress: {str(e)}")
         
         # Run the AI extraction with progress callback
-        print(f"=== Starting AI extraction with real-time progress updates ===")
-        logger.info("Starting AI extraction with progress callback")
+        logger.info("Calling AI extraction service...")
         
         try:
             extraction_result = await ai_extraction_service.extract_from_documents(
@@ -390,38 +575,56 @@ async def _run_extraction_task(
                 confidence_threshold=confidence_threshold,
                 progress_callback=update_progress
             )
-            print(f"=== AI extraction completed ===")
-            logger.info("AI extraction service call completed successfully")
+            logger.info("AI extraction service completed successfully")
         except HTTPException as http_err:
             # HTTPExceptions from services need to be converted to regular exceptions in background tasks
-            error_msg = http_err.detail if hasattr(http_err, 'detail') else str(http_err)
-            logger.error(f"HTTP error in extraction service: {error_msg}")
-            raise Exception(error_msg)
+            error_detail = http_err.detail if hasattr(http_err, 'detail') else str(http_err)
+            logger.error(f"HTTP error in extraction service: {error_detail}")
+            logger.error(f"HTTP status code: {http_err.status_code}")
+            raise Exception(f"Extraction error (HTTP {http_err.status_code}): {error_detail}")
         except Exception as extraction_err:
-            logger.error(f"Extraction service error: {str(extraction_err)}", exc_info=True)
-            raise
+            # Get the full traceback for debugging
+            tb_str = traceback.format_exc()
+            logger.error(f"Extraction service error: {str(extraction_err)}")
+            logger.error(f"Full traceback:\n{tb_str}")
+            raise Exception(f"Extraction failed: {str(extraction_err)}")
         
         # Final progress update before saving (90-100%)
         db_service.update_extraction_progress(submission_id, 90, "processing")
-        print(f"=== Finalizing results - 90% ===")
+        logger.info("Step 6: Finalizing results - 90%")
         
         db_service.update_extraction_progress(submission_id, 95, "processing")
-        print(f"=== Saving to database - 95% ===")
+        logger.info("Step 7: Saving to database - 95%")
         
         # Save extraction results to database
         success = db_service.save_extraction_results(submission_id, extraction_result)
         
         if success:
-            logger.info(f"AI extraction completed for submission {submission_id}")
-            print(f"=== Extraction results saved successfully - 100% ===")
+            logger.info(f"{'='*60}")
+            logger.info(f"AI EXTRACTION COMPLETED SUCCESSFULLY")
+            logger.info(f"Submission ID: {submission_id}")
+            logger.info(f"{'='*60}")
         else:
             logger.error(f"Failed to save extraction results for submission {submission_id}")
             raise Exception("Failed to save extraction results to database")
         
     except Exception as e:
-        error_msg = f"AI extraction task failed for submission {submission_id}: {str(e)}"
-        print(f"=== ERROR: {error_msg} ===")
-        logger.error(error_msg, exc_info=True)
-        db_service.save_extraction_error(submission_id, str(e))
+        # Capture detailed error information
+        error_details = str(e)
+        if not error_details or error_details == "":
+            error_details = f"Unknown error: {type(e).__name__}"
+        
+        # Get traceback for logging
+        tb_str = traceback.format_exc()
+        
+        logger.error(f"{'='*60}")
+        logger.error(f"AI EXTRACTION FAILED")
+        logger.error(f"Submission ID: {submission_id}")
+        logger.error(f"Error: {error_details}")
+        logger.error(f"Traceback:\n{tb_str}")
+        logger.error(f"{'='*60}")
+        
+        # Save the detailed error to database
+        db_service.save_extraction_error(submission_id, error_details)
     finally:
         db.close()

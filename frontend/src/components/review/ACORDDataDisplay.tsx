@@ -90,6 +90,11 @@ const sectionIconMap: Record<string, React.ComponentType<any>> = {
   prior_carriers: DollarSign,
   loss_history: AlertCircle,
   signatures: Edit2,
+  // Phase 2: Form-specific sections
+  general_liability: FileText,      // ACORD 126 - GL data
+  commercial_auto: FileText,        // ACORD 127 - Commercial Auto data
+  workers_compensation: Users,      // ACORD 130 - WC data  
+  property: Building2,              // ACORD 140 - Property data
 };
 
 // ============================================================================

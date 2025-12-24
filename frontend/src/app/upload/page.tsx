@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth-store';
 import { useSubmissionStore } from '@/store/submission-store';
 import { apiClient, setAuthToken } from '@/lib/api';
@@ -15,6 +15,8 @@ import { Upload, FileText, CheckCircle, AlertCircle, Trash2, History } from 'luc
 
 export default function UploadPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const submissionIdFromUrl = searchParams.get('submission');
   const { isAuthenticated, isLoading, user, token } = useAuthStore();
   const {
     currentSubmission,
@@ -193,18 +195,18 @@ export default function UploadPage() {
     }
   };
 
-  // Load existing submission if in URL
+  // Load existing submission if in URL - react to URL changes
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const submissionId = urlParams.get('submission');
-    
-    if (submissionId && !currentSubmission) {
-      loadSubmission(submissionId);
-    } else if (!submissionId && !currentSubmission) {
-      // Check for incomplete submissions when no specific submission is loaded
+    if (submissionIdFromUrl) {
+      // Always load the submission from URL, even if we have a different one loaded
+      if (!currentSubmission || currentSubmission.id !== submissionIdFromUrl) {
+        loadSubmission(submissionIdFromUrl);
+      }
+    } else if (!currentSubmission) {
+      // No submission in URL and none loaded - check for incomplete submissions
       checkForIncompleteSubmissions();
     }
-  }, []);
+  }, [submissionIdFromUrl, token]); // Re-run when URL parameter or token changes
 
   const checkForIncompleteSubmissions = async () => {
     try {

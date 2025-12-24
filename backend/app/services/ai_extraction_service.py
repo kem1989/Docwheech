@@ -1,9 +1,14 @@
 """
 AI extraction service combining OpenAI GPT-4 and AWS Textract
+
+Two-Phase Extraction:
+- Phase 1: Base ACORD 125 extraction + coverage detection
+- Phase 2: Form-specific extraction (ACORD 126, 130, 140) based on detected coverages
 """
 
 import json
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from fastapi import HTTPException
@@ -16,6 +21,16 @@ from app.config import settings
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
+
+# Coverage type to ACORD form mapping
+COVERAGE_TO_FORM_MAP = {
+    "COMMERCIAL_GENERAL_LIABILITY": "ACORD_126",
+    "WORKERS_COMPENSATION": "ACORD_130",
+    "COMMERCIAL_PROPERTY": "ACORD_140",
+    "BUSINESS_AUTO": "ACORD_127",
+    "MOTOR_CARRIER": "ACORD_127",
+    "TRUCKERS": "ACORD_127",
+}
 
 
 class AIExtractionService:
@@ -49,7 +64,10 @@ class AIExtractionService:
             Dictionary containing extracted data and metadata
         """
         try:
-            logger.info(f"Starting AI extraction for submission {submission_id}")
+            logger.info(f"=== Starting AI extraction for submission {submission_id} ===")
+            logger.info(f"Documents to process: {len(document_keys)}")
+            for i, key in enumerate(document_keys):
+                logger.info(f"  Document {i+1}: {key}")
             
             # Step 1: Extract text from all documents using Textract (20-40%)
             extracted_texts = []
@@ -57,19 +75,35 @@ class AIExtractionService:
             
             total_documents = len(document_keys)
             for idx, key in enumerate(document_keys):
-                logger.info(f"Processing document {idx + 1}/{total_documents}: {key}")
+                logger.info(f"=== Processing document {idx + 1}/{total_documents}: {key} ===")
                 
                 # Determine document type from file extension
                 file_extension = key.split('.')[-1].lower()
                 document_type = self._get_document_type(file_extension)
+                logger.info(f"Document type detected: {document_type} (extension: {file_extension})")
+                
+                # Report progress before starting Textract (each doc spans a portion of 20-40%)
+                if progress_callback:
+                    pre_progress = 20 + int(idx / total_documents * 18)
+                    progress_callback(pre_progress)
+                    logger.info(f"Pre-Textract progress: {pre_progress}%")
                 
                 # Extract text using Textract
-                textract_result = await run_in_threadpool(
-                    self.textract_service.extract_text_from_s3,
-                    bucket=settings.AWS_S3_BUCKET,
-                    key=key,
-                    document_type=document_type
-                )
+                try:
+                    logger.info(f"Calling Textract for document: s3://{settings.AWS_S3_BUCKET}/{key}")
+                    textract_result = await run_in_threadpool(
+                        self.textract_service.extract_text_from_s3,
+                        bucket=settings.AWS_S3_BUCKET,
+                        key=key,
+                        document_type=document_type
+                    )
+                    logger.info(f"Textract completed for {key} - extracted {len(textract_result.get('text', ''))} chars")
+                except Exception as textract_error:
+                    logger.error(f"Textract FAILED for document {key}: {str(textract_error)}", exc_info=True)
+                    raise HTTPException(
+                        status_code=500, 
+                        detail=f"Document text extraction failed for {key.split('/')[-1]}: {str(textract_error)}"
+                    )
                 
                 extracted_texts.append(textract_result['text'])
                 document_metadata.append({
@@ -84,7 +118,7 @@ class AIExtractionService:
                 if progress_callback:
                     progress = 20 + int((idx + 1) / total_documents * 20)
                     progress_callback(progress)
-                    logger.info(f"Textract progress: {progress}%")
+                    logger.info(f"Textract progress: {progress}% (completed {idx+1}/{total_documents} documents)")
             
             # Step 2: Combine all extracted text
             combined_text = '\n\n--- DOCUMENT SEPARATOR ---\n\n'.join(extracted_texts)
@@ -103,13 +137,38 @@ class AIExtractionService:
             )
             
             if progress_callback:
-                progress_callback(55)
-                logger.info("OpenAI extraction complete: 55%")
+                progress_callback(50)
+                logger.info("Phase 1 extraction complete: 50%")
             
-            # Step 4: Generate risk narrative (60-70%)
+            # Step 4: PHASE 2 - Form-specific extraction based on detected coverages (50-70%)
+            logger.info("Starting Phase 2: Form-specific extraction")
+            
+            # Detect which coverages are present
+            detected_coverages = self.openai_service.detect_coverages_from_extraction(extracted_data)
+            logger.info(f"Detected coverages for Phase 2: {detected_coverages}")
+            
+            # Run form-specific extractions for detected coverages
+            form_specific_data = {}
+            if detected_coverages:
+                if progress_callback:
+                    progress_callback(55)
+                
+                form_specific_data = await self._run_phase2_extractions(
+                    combined_text,
+                    extracted_data,
+                    detected_coverages,
+                    confidence_threshold,
+                    progress_callback
+                )
+                
+                # Merge form-specific data into extracted_data
+                extracted_data = self._merge_extraction_results(extracted_data, form_specific_data)
+            
             if progress_callback:
-                progress_callback(60)
+                progress_callback(70)
+                logger.info("Phase 2 extraction complete: 70%")
             
+            # Step 5: Generate risk narrative (70-75%)
             logger.info("Generating risk narrative")
             risk_narrative = await run_in_threadpool(
                 self.openai_service.generate_risk_narrative,
@@ -117,12 +176,12 @@ class AIExtractionService:
             )
             
             if progress_callback:
-                progress_callback(70)
-                logger.info("Risk narrative generated: 70%")
-            
-            # Step 5: Convert to ACORD 125 schema (70-85%)
-            if progress_callback:
                 progress_callback(75)
+                logger.info("Risk narrative generated: 75%")
+            
+            # Step 7: Convert to ACORD 125 schema (75-85%)
+            if progress_callback:
+                progress_callback(78)
             
             logger.info("Converting extracted data to ACORD 125 schema")
             acord_schema = create_acord_schema_from_extraction(extracted_data)
@@ -134,7 +193,7 @@ class AIExtractionService:
                 progress_callback(85)
                 logger.info("ACORD schema conversion complete: 85%")
             
-            # Step 6: Prepare final result
+            # Step 8: Prepare final result
             extraction_result = {
                 'submission_id': submission_id,
                 'user_id': user_id,
@@ -145,13 +204,17 @@ class AIExtractionService:
                 'acord_schema': acord_schema.to_dict(),
                 'risk_narrative': risk_narrative,
                 'document_metadata': document_metadata,
+                'detected_coverages': detected_coverages,
+                'form_specific_extractions': list(form_specific_data.keys()) if form_specific_data else [],
                 'processing_stats': {
                     'total_documents': len(document_keys),
                     'total_pages': sum(doc['page_count'] for doc in document_metadata),
                     'average_confidence': self._calculate_average_confidence(document_metadata),
-                    'extraction_method': 'openai_gpt4_textract',
-                    'completion_percentage': 100.0,  # TODO: Calculate actual completion percentage
-                    'missing_fields': []  # TODO: Calculate actual missing fields
+                    'extraction_method': 'openai_gpt4_textract_two_phase',
+                    'phase1_fields': 'ACORD_125',
+                    'phase2_forms': list(form_specific_data.keys()) if form_specific_data else [],
+                    'completion_percentage': 100.0,
+                    'missing_fields': []
                 }
             }
             
@@ -389,6 +452,154 @@ class AIExtractionService:
             return str(value).strip()
         except Exception:
             return None
+    
+    # =========================================================================
+    # Phase 2: Form-Specific Extraction Methods
+    # =========================================================================
+    
+    async def _run_phase2_extractions(
+        self,
+        combined_text: str,
+        base_extracted_data: Dict[str, Any],
+        detected_coverages: List[str],
+        confidence_threshold: float,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Run Phase 2 form-specific extractions based on detected coverages.
+        Runs extractions in parallel for efficiency.
+        
+        Args:
+            combined_text: Combined text from all documents
+            base_extracted_data: Data extracted in Phase 1
+            detected_coverages: List of detected coverage types
+            confidence_threshold: Minimum confidence threshold
+            progress_callback: Optional progress callback
+            
+        Returns:
+            Dictionary mapping form type to extracted data
+        """
+        form_specific_data = {}
+        extraction_tasks = []
+        
+        # Determine which forms to extract based on detected coverages
+        forms_to_extract = []
+        for coverage in detected_coverages:
+            form_type = COVERAGE_TO_FORM_MAP.get(coverage)
+            if form_type and form_type not in forms_to_extract:
+                forms_to_extract.append((coverage, form_type))
+        
+        if not forms_to_extract:
+            logger.info("No form-specific extractions needed")
+            return form_specific_data
+        
+        logger.info(f"Running Phase 2 extraction for forms: {[f[1] for f in forms_to_extract]}")
+        
+        # Create extraction tasks for parallel execution
+        for coverage, form_type in forms_to_extract:
+            if form_type == "ACORD_126":
+                task = run_in_threadpool(
+                    self.openai_service.extract_acord126_data,
+                    combined_text,
+                    base_extracted_data,
+                    confidence_threshold
+                )
+                extraction_tasks.append((form_type, task))
+            
+            elif form_type == "ACORD_130":
+                task = run_in_threadpool(
+                    self.openai_service.extract_acord130_data,
+                    combined_text,
+                    base_extracted_data,
+                    confidence_threshold
+                )
+                extraction_tasks.append((form_type, task))
+            
+            elif form_type == "ACORD_140":
+                task = run_in_threadpool(
+                    self.openai_service.extract_acord140_data,
+                    combined_text,
+                    base_extracted_data,
+                    confidence_threshold
+                )
+                extraction_tasks.append((form_type, task))
+            
+            elif form_type == "ACORD_127":
+                task = run_in_threadpool(
+                    self.openai_service.extract_acord127_data,
+                    combined_text,
+                    base_extracted_data,
+                    confidence_threshold
+                )
+                extraction_tasks.append((form_type, task))
+        
+        # Execute all tasks in parallel
+        if extraction_tasks:
+            # Update progress
+            if progress_callback:
+                progress_callback(58)
+            
+            # Run all extractions concurrently
+            results = await asyncio.gather(
+                *[task for _, task in extraction_tasks],
+                return_exceptions=True
+            )
+            
+            # Process results
+            for i, (form_type, _) in enumerate(extraction_tasks):
+                result = results[i]
+                if isinstance(result, Exception):
+                    logger.error(f"Phase 2 extraction failed for {form_type}: {str(result)}")
+                    form_specific_data[form_type] = {}
+                else:
+                    form_specific_data[form_type] = result
+                    logger.info(f"Phase 2 extraction complete for {form_type}")
+            
+            # Update progress
+            if progress_callback:
+                progress_callback(65)
+        
+        return form_specific_data
+    
+    def _merge_extraction_results(
+        self,
+        base_data: Dict[str, Any],
+        form_specific_data: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Merge form-specific extraction results into the base extracted data.
+        
+        Args:
+            base_data: Base extraction data from Phase 1
+            form_specific_data: Form-specific data from Phase 2
+            
+        Returns:
+            Merged extraction data
+        """
+        merged = base_data.copy()
+        
+        # Add form-specific sections
+        for form_type, data in form_specific_data.items():
+            if not data:
+                continue
+            
+            if form_type == "ACORD_126" and "general_liability" in data:
+                merged["general_liability"] = data["general_liability"]
+                logger.info("Merged ACORD 126 (GL) data into extraction results")
+            
+            elif form_type == "ACORD_130" and "workers_compensation" in data:
+                merged["workers_compensation"] = data["workers_compensation"]
+                logger.info("Merged ACORD 130 (WC) data into extraction results")
+            
+            elif form_type == "ACORD_140" and "property" in data:
+                merged["property"] = data["property"]
+                logger.info("Merged ACORD 140 (Property) data into extraction results")
+            
+            elif form_type == "ACORD_127" and "commercial_auto" in data:
+                merged["commercial_auto"] = data["commercial_auto"]
+                logger.info("Merged ACORD 127 (Commercial Auto) data into extraction results")
+        
+        return merged
 
 
 # Global AI extraction service instance

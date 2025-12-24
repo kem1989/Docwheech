@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     
     # PDF Templates (path inside backend container)
     ACORD125_TEMPLATE_PATH: str = "/app/static/acord-templates/ACORD_125_fillable.pdf"
+    ACORD_TEMPLATES_PATH: str = "/app/static/acord-templates"
     
     class Config:
         env_file = ".env"

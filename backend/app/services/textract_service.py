@@ -78,35 +78,63 @@ class TextractService:
     def _process_pdf_document(self, bucket: str, key: str) -> Dict[str, Any]:
         """Process PDF document using asynchronous Textract"""
         try:
+            logger.info(f"Starting Textract processing for PDF: s3://{bucket}/{key}")
+            
+            # Validate inputs
+            if not bucket or not key:
+                raise HTTPException(status_code=400, detail="Invalid S3 bucket or key")
+            
             # Start asynchronous job
-            response = self.textract_client.start_document_text_detection(
-                DocumentLocation={
-                    'S3Object': {
-                        'Bucket': bucket,
-                        'Name': key
+            try:
+                response = self.textract_client.start_document_text_detection(
+                    DocumentLocation={
+                        'S3Object': {
+                            'Bucket': bucket,
+                            'Name': key
+                        }
                     }
-                }
-            )
+                )
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                error_msg = e.response.get('Error', {}).get('Message', str(e))
+                logger.error(f"Failed to start Textract job - Code: {error_code}, Message: {error_msg}")
+                
+                if error_code == 'InvalidS3ObjectException':
+                    raise HTTPException(status_code=404, detail=f"Document not found in S3: s3://{bucket}/{key}")
+                elif error_code == 'AccessDeniedException':
+                    raise HTTPException(status_code=403, detail="Access denied to S3 document. Check AWS permissions.")
+                else:
+                    raise HTTPException(status_code=500, detail=f"AWS Textract error: {error_msg}")
             
             job_id = response['JobId']
-            logger.info(f"Started Textract job {job_id} for PDF {key}")
+            logger.info(f"Started Textract job {job_id} for PDF s3://{bucket}/{key}")
             
             # Wait for job completion
             job_result = self._wait_for_job_completion(job_id)
             
             # Extract text from results
-            extracted_text = self._extract_text_from_blocks(job_result.get('Blocks', []))
+            blocks = job_result.get('Blocks', [])
+            extracted_text = self._extract_text_from_blocks(blocks)
+            page_count = self._count_pages(blocks)
+            
+            logger.info(f"Textract job {job_id} extracted {len(extracted_text)} chars from {page_count} pages")
             
             return {
                 'text': extracted_text,
                 'job_id': job_id,
                 'status': 'completed',
-                'page_count': self._count_pages(job_result.get('Blocks', [])),
-                'confidence_scores': self._calculate_confidence_scores(job_result.get('Blocks', []))
+                'page_count': page_count,
+                'confidence_scores': self._calculate_confidence_scores(blocks)
             }
             
+        except HTTPException:
+            raise
+        except ClientError as e:
+            error_msg = e.response.get('Error', {}).get('Message', str(e))
+            logger.error(f"PDF processing failed (AWS error): {error_msg}")
+            raise HTTPException(status_code=500, detail=f"PDF processing failed: {error_msg}")
         except Exception as e:
-            logger.error(f"PDF processing failed: {str(e)}")
+            logger.error(f"PDF processing failed: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
     
     def _process_image_document(self, bucket: str, key: str) -> Dict[str, Any]:
@@ -136,25 +164,53 @@ class TextractService:
             raise HTTPException(status_code=500, detail=f"Image processing failed: {str(e)}")
     
     def _wait_for_job_completion(self, job_id: str, max_wait_time: int = 300) -> Dict[str, Any]:
-        """Wait for Textract job completion"""
+        """Wait for Textract job completion with improved error handling"""
         import time
         
         start_time = time.time()
+        check_count = 0
+        
+        logger.info(f"Waiting for Textract job {job_id} to complete (max wait: {max_wait_time}s)")
         
         while time.time() - start_time < max_wait_time:
-            response = self.textract_client.get_document_text_detection(JobId=job_id)
-            status = response['JobStatus']
-            
-            if status == 'SUCCEEDED':
-                return response
-            elif status == 'FAILED':
-                error_message = response.get('StatusMessage', 'Unknown error')
-                raise HTTPException(status_code=500, detail=f"Textract job failed: {error_message}")
-            
-            # Wait before checking again
-            time.sleep(5)
+            try:
+                check_count += 1
+                elapsed = int(time.time() - start_time)
+                logger.info(f"Textract job {job_id} - Check #{check_count}, elapsed: {elapsed}s")
+                
+                response = self.textract_client.get_document_text_detection(JobId=job_id)
+                status = response['JobStatus']
+                
+                logger.info(f"Textract job {job_id} status: {status}")
+                
+                if status == 'SUCCEEDED':
+                    logger.info(f"Textract job {job_id} completed successfully after {elapsed}s")
+                    return response
+                elif status == 'FAILED':
+                    error_message = response.get('StatusMessage', 'Unknown error')
+                    logger.error(f"Textract job {job_id} FAILED: {error_message}")
+                    raise HTTPException(status_code=500, detail=f"Textract job failed: {error_message}")
+                elif status == 'IN_PROGRESS':
+                    # Job is still processing - wait and check again
+                    logger.debug(f"Textract job {job_id} still in progress...")
+                else:
+                    logger.warning(f"Textract job {job_id} unexpected status: {status}")
+                
+                # Wait before checking again (use shorter interval at first)
+                wait_interval = 3 if check_count <= 5 else 5
+                time.sleep(wait_interval)
+                
+            except ClientError as e:
+                logger.error(f"AWS error checking Textract job {job_id}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"AWS Textract error: {str(e)}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error checking Textract job {job_id}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error checking Textract job: {str(e)}")
         
-        raise HTTPException(status_code=408, detail="Textract job timeout")
+        logger.error(f"Textract job {job_id} timeout after {max_wait_time}s")
+        raise HTTPException(status_code=408, detail=f"Textract job timeout after {max_wait_time} seconds")
     
     def _extract_text_from_blocks(self, blocks: List[Dict[str, Any]]) -> str:
         """Extract text from Textract blocks"""

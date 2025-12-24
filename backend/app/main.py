@@ -9,7 +9,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.api import auth, upload, extraction, acord, export
+from app.api import auth, upload, extraction, acord, export, gap_detection
 from app.config import settings
 from app.database import create_tables
 
@@ -64,6 +64,7 @@ app.include_router(upload.router, prefix="/api/upload", tags=["File Upload"])
 app.include_router(extraction.router, prefix="/api/extraction", tags=["AI Extraction"])
 app.include_router(acord.router, prefix="/api/acord", tags=["ACORD Forms"])
 app.include_router(export.router, prefix="/api/export", tags=["PDF Export"])
+app.include_router(gap_detection.router, prefix="/api/gaps", tags=["Gap Detection"])
 
 
 @app.get("/")

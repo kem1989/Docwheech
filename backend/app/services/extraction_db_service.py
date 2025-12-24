@@ -737,3 +737,237 @@ class ExtractionDatabaseService:
         except Exception as e:
             logger.error(f"Failed to get enhanced ACORD data: {str(e)}")
             return None
+    
+    # =========================================================================
+    # FIELD EDITING METHODS
+    # =========================================================================
+    
+    def get_field_value(
+        self,
+        submission_id: str,
+        field_path: str
+    ) -> Any:
+        """
+        Get the current value of a specific field from extracted data.
+        
+        Args:
+            submission_id: Submission identifier
+            field_path: Dot-notation path to the field (e.g., "first_named_insured.name")
+            
+        Returns:
+            Current field value or None
+        """
+        try:
+            submission = self.db.query(Submission).filter(
+                Submission.id == submission_id
+            ).first()
+            
+            if not submission or not submission.extracted_data:
+                return None
+            
+            # Navigate the field path
+            value = submission.extracted_data
+            for key in field_path.split('.'):
+                # Handle array indices like "premises[0]"
+                if '[' in key:
+                    base_key = key.split('[')[0]
+                    index = int(key.split('[')[1].rstrip(']'))
+                    if isinstance(value, dict) and base_key in value:
+                        value = value[base_key]
+                        if isinstance(value, list) and index < len(value):
+                            value = value[index]
+                        else:
+                            return None
+                    else:
+                        return None
+                elif isinstance(value, dict) and key in value:
+                    value = value[key]
+                else:
+                    return None
+            
+            # Unwrap confidence wrapper if present
+            if isinstance(value, dict) and 'value' in value:
+                return value.get('value')
+            return value
+            
+        except Exception as e:
+            logger.error(f"Failed to get field value: {str(e)}")
+            return None
+    
+    def update_extracted_field(
+        self,
+        submission_id: str,
+        field_path: str,
+        new_value: Any,
+        user_id: str
+    ) -> bool:
+        """
+        Update a single field in the extracted data.
+        
+        Args:
+            submission_id: Submission identifier
+            field_path: Dot-notation path to the field
+            new_value: New value for the field
+            user_id: User making the edit
+            
+        Returns:
+            True if successful
+        """
+        try:
+            submission = self.db.query(Submission).filter(
+                Submission.id == submission_id
+            ).first()
+            
+            if not submission:
+                logger.error(f"Submission {submission_id} not found")
+                return False
+            
+            # Get old value for history
+            old_value = self.get_field_value(submission_id, field_path)
+            
+            # Update extracted_data (with confidence wrappers)
+            if submission.extracted_data:
+                extracted_data = dict(submission.extracted_data)
+                self._set_nested_value(extracted_data, field_path, {
+                    'value': new_value,
+                    'confidence': 1.0,  # Manual edits have 100% confidence
+                    'validation_status': 'validated',
+                    'edited': True,
+                    'original_value': old_value
+                })
+                submission.extracted_data = extracted_data
+            
+            # Update acord_data (clean values)
+            if submission.acord_data:
+                acord_data = dict(submission.acord_data)
+                self._set_nested_value(acord_data, field_path, new_value)
+                submission.acord_data = acord_data
+            
+            # Update edit history
+            self._add_edit_history(
+                submission_id=submission_id,
+                field_path=field_path,
+                old_value=old_value,
+                new_value=new_value,
+                user_id=user_id
+            )
+            
+            # Update timestamp
+            from datetime import datetime
+            submission.updated_at = datetime.utcnow()
+            
+            self.db.commit()
+            logger.info(f"Updated field {field_path} for submission {submission_id}")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to update field: {str(e)}", exc_info=True)
+            return False
+    
+    def _set_nested_value(self, data: Dict[str, Any], field_path: str, value: Any) -> None:
+        """
+        Set a value at a nested path in a dictionary.
+        
+        Args:
+            data: Dictionary to modify
+            field_path: Dot-notation path
+            value: Value to set
+        """
+        keys = field_path.split('.')
+        current = data
+        
+        for i, key in enumerate(keys[:-1]):
+            # Handle array indices
+            if '[' in key:
+                base_key = key.split('[')[0]
+                index = int(key.split('[')[1].rstrip(']'))
+                
+                if base_key not in current:
+                    current[base_key] = []
+                
+                while len(current[base_key]) <= index:
+                    current[base_key].append({})
+                
+                current = current[base_key][index]
+            else:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+        
+        # Set the final value
+        final_key = keys[-1]
+        if '[' in final_key:
+            base_key = final_key.split('[')[0]
+            index = int(final_key.split('[')[1].rstrip(']'))
+            
+            if base_key not in current:
+                current[base_key] = []
+            
+            while len(current[base_key]) <= index:
+                current[base_key].append(None)
+            
+            current[base_key][index] = value
+        else:
+            current[final_key] = value
+    
+    def _add_edit_history(
+        self,
+        submission_id: str,
+        field_path: str,
+        old_value: Any,
+        new_value: Any,
+        user_id: str
+    ) -> None:
+        """
+        Add an entry to the edit history.
+        
+        Note: This stores edit history in the submission's metadata.
+        For production, consider using a separate EditHistory table.
+        """
+        from datetime import datetime
+        
+        submission = self.db.query(Submission).filter(
+            Submission.id == submission_id
+        ).first()
+        
+        if not submission:
+            return
+        
+        # Get existing edit history or create new
+        edit_history = submission.edit_history or []
+        
+        # Add new entry
+        edit_history.append({
+            'field_path': field_path,
+            'old_value': old_value,
+            'new_value': new_value,
+            'edited_at': datetime.utcnow().isoformat(),
+            'edited_by': user_id
+        })
+        
+        submission.edit_history = edit_history
+    
+    def get_edit_history(self, submission_id: str) -> List[Dict[str, Any]]:
+        """
+        Get the edit history for a submission.
+        
+        Args:
+            submission_id: Submission identifier
+            
+        Returns:
+            List of edit history entries
+        """
+        try:
+            submission = self.db.query(Submission).filter(
+                Submission.id == submission_id
+            ).first()
+            
+            if not submission:
+                return []
+            
+            return submission.edit_history or []
+            
+        except Exception as e:
+            logger.error(f"Failed to get edit history: {str(e)}")
+            return []

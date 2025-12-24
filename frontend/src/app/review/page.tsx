@@ -24,6 +24,8 @@ import {
 import ACORDDataDisplay from '@/components/review/ACORDDataDisplay';
 import ExtractionProgress from '@/components/review/ExtractionProgress';
 import GeneralQuestionsForm from '@/components/review/GeneralQuestionsForm';
+import MultiFormGenerator from '@/components/review/MultiFormGenerator';
+import { useFieldEdit } from '@/hooks/use-field-edit';
 
 interface ExtractionStatus {
   submission_id: string;
@@ -43,6 +45,8 @@ interface ExtractedData {
   extracted_data: any;
   acord_schema: any;
   risk_narrative: string;
+  detected_coverages?: string[];
+  form_specific_extractions?: string[];
   processing_stats: {
     total_documents: number;
     total_pages: number;
@@ -50,6 +54,8 @@ interface ExtractedData {
     extraction_method: string;
     completion_percentage: number;
     missing_fields: string[];
+    phase1_fields?: string;
+    phase2_forms?: string[];
   };
   extraction_timestamp: string;
 }
@@ -77,6 +83,30 @@ export default function ReviewPage() {
   const [showRawData, setShowRawData] = useState(false);
   const [isFillingPdf, setIsFillingPdf] = useState(false);
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null);
+
+  // Field editing hook
+  const {
+    editingField,
+    changes,
+    isSaving,
+    saveError,
+    hasUnsavedChanges,
+    updateField,
+    saveAllChanges,
+    discardChanges,
+    getFieldValue,
+    isFieldEdited,
+  } = useFieldEdit({
+    submissionId: submissionId || '',
+    onSaveSuccess: (fieldPath, newValue) => {
+      console.log('✅ Field saved:', fieldPath, newValue);
+    },
+    onSaveError: (fieldPath, error) => {
+      console.error('❌ Failed to save field:', fieldPath, error);
+    },
+    autoSave: true,
+    debounceMs: 1500,
+  });
 
   const sanitizeAcordForFill = (acord: any) => {
     try {
@@ -614,6 +644,62 @@ export default function ReviewPage() {
             </Card>
           )}
 
+          {/* Detected Coverages & Form-Specific Extractions */}
+          {(extractedData.detected_coverages?.length > 0 || extractedData.form_specific_extractions?.length > 0) && (
+            <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-indigo-600" />
+                  Two-Phase Extraction Complete
+                </CardTitle>
+                <CardDescription>
+                  Context-aware extraction detected the following coverages and extracted form-specific data
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Detected Coverages */}
+                  {extractedData.detected_coverages && extractedData.detected_coverages.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Detected Coverages</p>
+                      <div className="flex flex-wrap gap-2">
+                        {extractedData.detected_coverages.map((coverage: string) => (
+                          <Badge key={coverage} className="bg-indigo-100 text-indigo-800 border-indigo-200">
+                            {coverage.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Form-Specific Extractions */}
+                  {extractedData.form_specific_extractions && extractedData.form_specific_extractions.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Form-Specific Data Extracted</p>
+                      <div className="flex flex-wrap gap-2">
+                        {extractedData.form_specific_extractions.map((form: string) => (
+                          <Badge key={form} variant="outline" className="bg-white border-purple-300 text-purple-700">
+                            {form.replace('_', ' ')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Processing Method Info */}
+                {extractedData.processing_stats?.extraction_method === 'openai_gpt4_textract_two_phase' && (
+                  <div className="mt-4 pt-4 border-t border-indigo-200">
+                    <p className="text-xs text-indigo-600">
+                      <strong>Phase 1:</strong> Base ACORD 125 extraction • 
+                      <strong> Phase 2:</strong> {extractedData.processing_stats.phase2_forms?.join(', ') || 'None'}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Risk Narrative */}
           {extractedData.risk_narrative && (
             <Card>
@@ -628,18 +714,61 @@ export default function ReviewPage() {
             </Card>
           )}
 
+          {/* Multi-Form Generator */}
+          <MultiFormGenerator
+            submissionId={submissionId!}
+            userId={user?.uid || user?.id || 'demo-user'}
+            extractedData={extractedData.extracted_data}
+            acordSchema={extractedData.acord_schema}
+            detectedCoverages={extractedData.detected_coverages}
+            formSpecificExtractions={extractedData.form_specific_extractions}
+          />
+
+          {/* Unsaved Changes Banner */}
+          {hasUnsavedChanges && (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-amber-800">
+                    <Edit className="h-4 w-4" />
+                    <span className="font-medium">
+                      {changes.size} unsaved change{changes.size > 1 ? 's' : ''}
+                    </span>
+                    {isSaving && <span className="text-sm">(Saving...)</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => discardChanges()}
+                    >
+                      Discard All
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => saveAllChanges()}
+                      disabled={isSaving}
+                    >
+                      {isSaving ? 'Saving...' : 'Save All'}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* ACORD Data Display */}
           <ACORDDataDisplay
             extractedData={extractedData.extracted_data}
             acordSchema={extractedData.acord_schema}
             processingStats={extractedData.processing_stats}
             onFieldEdit={(fieldPath, newValue) => {
-              console.log('Field edit:', fieldPath, newValue);
-              // TODO: Implement field editing
+              // Get original value from extracted data
+              const originalValue = getFieldValue(fieldPath, null);
+              updateField(fieldPath, newValue, originalValue);
             }}
             onFieldValidate={(fieldPath) => {
               console.log('Field validate:', fieldPath);
-              // TODO: Implement field validation
             }}
           />
 

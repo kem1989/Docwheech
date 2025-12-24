@@ -428,6 +428,30 @@ def transform_extracted_to_acord_schema(extracted_data: Dict[str, Any]) -> Dict[
         if 'signatures' in unwrapped:
             acord_data['signatures'] = unwrapped['signatures']
         
+        # =====================================================================
+        # PHASE 2: Form-Specific Sections (pass through from merged extraction)
+        # =====================================================================
+        
+        # ACORD 126 - General Liability
+        if 'general_liability' in unwrapped:
+            acord_data['general_liability'] = unwrapped['general_liability']
+            logger.info("Included general_liability (ACORD 126) data in ACORD schema")
+        
+        # ACORD 127 - Commercial Auto
+        if 'commercial_auto' in unwrapped:
+            acord_data['commercial_auto'] = unwrapped['commercial_auto']
+            logger.info("Included commercial_auto (ACORD 127) data in ACORD schema")
+        
+        # ACORD 130 - Workers Compensation
+        if 'workers_compensation' in unwrapped:
+            acord_data['workers_compensation'] = unwrapped['workers_compensation']
+            logger.info("Included workers_compensation (ACORD 130) data in ACORD schema")
+        
+        # ACORD 140 - Commercial Property
+        if 'property' in unwrapped:
+            acord_data['property'] = unwrapped['property']
+            logger.info("Included property (ACORD 140) data in ACORD schema")
+        
         # Add metadata
         acord_data['extraction_timestamp'] = datetime.utcnow().isoformat()
         acord_data['validation_status'] = 'extracted'

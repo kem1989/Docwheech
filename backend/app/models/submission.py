@@ -28,6 +28,7 @@ class Submission(Base):
     acord_data = Column(JSON, nullable=True)  # Structured ACORD 125 data
     extracted_data = Column(JSON, nullable=True)  # Raw extracted data before ACORD conversion
     general_questions = Column(JSON, nullable=True)  # Manual responses for ACORD general questions
+    edit_history = Column(JSON, nullable=True, default=list)  # Track field edits for audit
     
     # Processing status
     extraction_status = Column(String(50), default="pending", nullable=False)  # pending, processing, completed, failed
@@ -37,6 +38,10 @@ class Submission(Base):
     # File management
     total_files = Column(Integer, default=0, nullable=False)
     processed_files = Column(Integer, default=0, nullable=False)
+    
+    # Gap analysis
+    gap_analysis_results = Column(JSON, nullable=True)  # Stored gap analysis report
+    gap_analysis_timestamp = Column(DateTime(timezone=True), nullable=True)  # When analysis was last run
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -75,11 +80,14 @@ class Submission(Base):
             "acord_data": self.acord_data,
             "extracted_data": self.extracted_data,
             "general_questions": self.general_questions,
+            "edit_history": self.edit_history,
             "extraction_status": self.extraction_status,
             "extraction_progress": self.extraction_progress,
             "extraction_error": self.extraction_error,
             "total_files": self.total_files,
             "processed_files": self.processed_files,
+            "gap_analysis_results": self.gap_analysis_results,
+            "gap_analysis_timestamp": self.gap_analysis_timestamp.isoformat() if self.gap_analysis_timestamp else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
